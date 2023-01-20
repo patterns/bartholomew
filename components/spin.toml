@@ -1,0 +1,44 @@
+spin_version = "1"
+authors = ["patterns <>"]
+description = "Your first Fermyon Cloud application"
+name = "cloud_start"
+trigger = { type = "http", base = "/" }
+version = "0.2.5"
+
+
+[[component]]
+id = "inbox"
+source = "modules/inbox.wasm"
+environment = { REDIS_ADDRESS = "redis://demo:secret@redis-.cloud.redislabs.com:1" }
+[component.trigger]
+route = "/inbox"
+[component.build]
+command = "tinygo build -wasm-abi=generic -target=wasi -gc=leaking -no-debug -o modules/inbox.wasm inbox.go"
+
+[[component]]
+id = "outbox"
+source = "modules/outbox.wasm"
+environment = { REDIS_ADDRESS = "redis://demo:secret@redis-.cloud.redislabs.com:1" }
+[component.trigger]
+route = "/outbox"
+[component.build]
+command = "tinygo build -wasm-abi=generic -target=wasi -gc=leaking -no-debug -o modules/outbox.wasm outbox.go"
+
+[[component]]
+id = "webfinger"
+source = "modules/webfinger.wasm"
+environment = { SITE_NAME = "cloud-start-", SELF_ACTOR = "echo" }
+[component.trigger]
+route = "/.well-known/webfinger"
+[component.build]
+command = "tinygo build -wasm-abi=generic -target=wasi -gc=leaking -no-debug -o modules/webfinger.wasm webfinger.go"
+
+[[component]]
+id = "actor"
+source = "modules/actor.wasm"
+environment = { SITE_NAME = "cloud-start-", SELF_ACTOR = "echo" }
+[component.trigger]
+route = "/u/..."
+[component.build]
+command = "tinygo build -wasm-abi=generic -target=wasi -gc=leaking -no-debug -o modules/actor.wasm actor.go"
+
