@@ -1,80 +1,79 @@
 const std = @import("std");
+const print = @import("std").debug.print;
 const sdk = @cImport({
     @cInclude("stddef.h");
     @cInclude("spin-http.h");
 });
 
 // Entry point required by the Spin host
-export fn spin_http_handle_http_request(req: *sdk.spin_http_request_t, res: *sdk.spin_http_response_t) callconv(.C) void {
+export fn spin_http_handle_http_request(
+        req: *sdk.spin_http_request_t,
+        res: *sdk.spin_http_response_t) callconv(.C) void {
+
     defer sdk.spin_http_request_free(req);
 
     // TODO restrict path? (or just rely on routing)
 
-    if (req.method != sdk.SPIN_HTTP_METHOD_POST) {
-        res.status = @as(c_uint, 405);
-        return;
-    }
+    if (req.method != sdk.SPIN_HTTP_METHOD_POST) return httperr(res, 405);
 
     // TODO Verify header for Signature and Content-Type
 
-    const sz = req.body.val.len;
+    var g = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(!g.deinit());
+    const al = g.allocator();
+
+    var payload = std.ArrayList(u8).init(al);
+    defer payload.deinit();
+
     if (req.body.is_some) {
-        if (sz > 1048576) {
-            // restrict max to 1MB
-            res.status = @as(c_uint, 413);
-            return;
-        }
+        const sz = req.body.val.len;
+        // restrict max to 1MB
+        if (sz > 1048576) return httperr(res, 413);
 
-        const bodslc = req.body.val.ptr[0..sz];
-        std.testing.expectEqual(bodslc.len, sz) catch {
-            //TODO is this un/safe? (slicing c-ptr)
-            res.status = @as(c_uint, 422);
-            return;
-        };
-
-        const wellformed = std.json.validate(bodslc);
-        if (!wellformed) {
-            res.status = @as(c_uint, 406);
-            return;
-        }
+        payload.appendSlice(req.body.val.ptr[0..sz]) catch return httperr(res, 506);
+        const sane_json = std.json.validate(payload.items);
+        if (!sane_json) return httperr(res, 406);
     }
 
-    // rehydrate json and dispatch by activity-type
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit());
-    const allocator = gpa.allocator();
-    var parser = std.json.Parser.init(allocator, false);
-    var tree = parser.parse(req.body.val.ptr[0..sz]) catch {
-        res.status = @as(c_uint, 417);
-        return;
-    };
+    var parser = std.json.Parser.init(al, false);
+    defer parser.deinit();
+    var tree = parser.parse(payload.items) catch return httperr(res, 417);
     defer tree.deinit();
-    const found = tree.root.Object.contains("type");
-    if (!found) {
-        res.status = @as(c_uint, 424);
-        return;
+
+    const activity_found = tree.root.Object.contains("type");
+    if (!activity_found) {
+        return httperr(res, 424);
     }
+    // TODO can we use the Value's stringify function ?
     var elem = tree.root.Object.get("type").?;
-    switch (elem) {
-        //"Reject", "Undo" => res.status = @as(c_uint, 418),
-        //"Accept" => res.status = @as(c_uint, 418),
-        //"Follow" => res.status = @as(c_uint, 418),
-        .String => |val| {
-            res.status = @as(c_uint, 207);
-            //TODO publish to redis
-            _ = val;
-            return;
-        },
-        else => {res.status = @as(c_uint, 418); return;},
+    const act = elem.String;
+    if (streq("Reject", act) or streq("Undo", act)) {
+        return httperr(res, 418);
+
+    } else if (streq("Accept", act)) {
+        return httperr(res, 207);
+
+    } else if (streq("Follow", act)) {
+        return httperr(res, 207);
+
+    } else {
+        return httperr(res, 418);
     }
 
     res.status = @as(c_uint, 200);
 }
 
-
-
 // Stub needed to suppress a "import env::main" error
 pub fn main() void {
-    std.debug.print("main function stub", .{});
+    print("main function stub", .{});
+}
+
+fn streq(comptime s1: []const u8, s2: []const u8) bool {
+    return std.mem.eql(u8, s1, s2);
+}
+
+fn httperr(res: *sdk.spin_http_response_t, comptime stat: i32) void {
+    // readable?
+    res.status = @as(c_uint, stat);
 }
 

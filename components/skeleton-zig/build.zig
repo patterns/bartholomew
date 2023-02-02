@@ -2,8 +2,8 @@ const std = @import("std");
 
 pub fn build(b: *std.build.Builder) !void {
     b.setPreferredReleaseMode(std.builtin.Mode.ReleaseSafe);
-    const wasi = try std.zig.CrossTarget.parse(.{.arch_os_abi = "wasm32-wasi"});
-    const target = b.standardTargetOptions(.{.default_target = wasi});
+    const ww = try std.zig.CrossTarget.parse(.{.arch_os_abi = "wasm32-wasi"});
+    const target = b.standardTargetOptions(.{.default_target = ww});
 
     const lib = b.addStaticLibrary("spin", null);
     lib.setTarget(target);
