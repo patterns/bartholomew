@@ -1,15 +1,16 @@
 const std = @import("std");
 
 pub fn build(b: *std.build.Builder) !void {
-    b.setPreferredReleaseMode(std.builtin.Mode.ReleaseSafe);
+    ////b.setPreferredReleaseMode(std.builtin.Mode.ReleaseSafe);
     const ww = try std.zig.CrossTarget.parse(.{.arch_os_abi = "wasm32-wasi"});
     const target = b.standardTargetOptions(.{.default_target = ww});
 
     const lib = b.addStaticLibrary("spin", null);
+    lib.setBuildMode(std.builtin.Mode.ReleaseSmall);
     lib.setTarget(target);
     lib.linkLibC();
-    lib.addIncludeDir("deps/spin/http");
-    lib.addIncludeDir("deps/spin/redis");
+    lib.addIncludePath("deps/spin/http");
+    lib.addIncludePath("deps/spin/redis");
     lib.addCSourceFiles(&.{
         "deps/spin/http/spin-http.c",
         "deps/spin/http/wasi-outbound-http.c",
@@ -22,12 +23,13 @@ pub fn build(b: *std.build.Builder) !void {
     });
 
     const exe = b.addExecutable("webcomponent", "src/component.zig");
+    exe.setBuildMode(std.builtin.Mode.ReleaseSafe);
     exe.setTarget(target);
     exe.install();
     exe.linkLibC();
     exe.linkLibrary(lib);
-    exe.addIncludeDir("deps/spin/http");
-    exe.addIncludeDir("deps/spin/redis");
+    exe.addIncludePath("deps/spin/http");
+    exe.addIncludePath("deps/spin/redis");
 
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
