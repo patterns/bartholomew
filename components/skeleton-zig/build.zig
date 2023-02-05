@@ -14,8 +14,9 @@ pub fn build(b: *std.build.Builder) !void {
     lib.addCSourceFiles(&.{
         "deps/spin/http/spin-http.c",
         "deps/spin/http/wasi-outbound-http.c",
-        "deps/spin/redis/spin-redis.c",
+
         "deps/spin/redis/outbound-redis.c",
+        ////"deps/spin/redis/spin-redis.c",
     }, &.{
         "-Wall",
         "-Wno-unused-parameter",

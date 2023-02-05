@@ -1,5 +1,5 @@
 #include <stdlib.h>
-#include "spin-http.h"
+#include <spin-http.h>
 
 __attribute__((weak, export_name("canonical_abi_realloc")))
 void *canonical_abi_realloc(

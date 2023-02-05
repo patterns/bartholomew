@@ -1,5 +1,5 @@
 #include <stdlib.h>
-#include "wasi-outbound-http.h"
+#include <wasi-outbound-http.h>
 
 __attribute__((weak, export_name("canonical_abi_realloc")))
 void *canonical_abi_realloc(
