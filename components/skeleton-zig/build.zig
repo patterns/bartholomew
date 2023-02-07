@@ -23,7 +23,7 @@ pub fn build(b: *std.build.Builder) !void {
         "-Wno-switch-bool",
     });
 
-    const exe = b.addExecutable("webcomponent", "src/component.zig");
+    const exe = b.addExecutable("webcomponent", "src/main.zig");
     exe.setBuildMode(std.builtin.Mode.ReleaseSafe);
     exe.setTarget(target);
     exe.install();
