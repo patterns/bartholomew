@@ -1,7 +1,14 @@
 const std = @import("std");
+const cow_list = std.build.Pkg{ .name = "cow_list", .source = .{ .path = "libs/zigstr/libs/cow_list/src/main.zig" } };
+const ziglyph = std.build.Pkg{ .name = "ziglyph", .source = .{ .path = "libs/zigstr/libs/ziglyph/src/ziglyph.zig" } };
+const Zigstr = std.build.Pkg{
+    .name = "Zigstr",
+    .source = .{ .path = "libs/zigstr/src/Zigstr.zig" },
+    .dependencies = &[_]std.build.Pkg{ cow_list, ziglyph },
+};
+
 
 pub fn build(b: *std.build.Builder) !void {
-    ////b.setPreferredReleaseMode(std.builtin.Mode.ReleaseSafe);
     const ww = try std.zig.CrossTarget.parse(.{.arch_os_abi = "wasm32-wasi"});
     const target = b.standardTargetOptions(.{.default_target = ww});
 
@@ -9,14 +16,13 @@ pub fn build(b: *std.build.Builder) !void {
     lib.setBuildMode(std.builtin.Mode.ReleaseSmall);
     lib.setTarget(target);
     lib.linkLibC();
-    lib.addIncludePath("deps/spin/http");
-    lib.addIncludePath("deps/spin/redis");
+    lib.addIncludePath("libs/spin/http");
+    lib.addIncludePath("libs/spin/redis");
     lib.addCSourceFiles(&.{
-        "deps/spin/http/spin-http.c",
-        "deps/spin/http/wasi-outbound-http.c",
-
-        "deps/spin/redis/outbound-redis.c",
-        ////"deps/spin/redis/spin-redis.c",
+        "libs/spin/http/spin-http.c",
+        "libs/spin/http/wasi-outbound-http.c",
+        "libs/spin/redis/outbound-redis.c",
+        ////"libs/spin/redis/spin-redis.c",
     }, &.{
         "-Wall",
         "-Wno-unused-parameter",
@@ -29,8 +35,10 @@ pub fn build(b: *std.build.Builder) !void {
     exe.install();
     exe.linkLibC();
     exe.linkLibrary(lib);
-    exe.addIncludePath("deps/spin/http");
-    exe.addIncludePath("deps/spin/redis");
+    exe.addPackage(Zigstr);
+    exe.addIncludePath("libs/spin/http");
+    exe.addIncludePath("libs/spin/redis");
+
 
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());

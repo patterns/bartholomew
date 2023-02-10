@@ -3,9 +3,24 @@ const sdk = @cImport({
     @cInclude("stddef.h");
     @cInclude("spin-http.h");
 });
-const status = @import("status.zig");
 
-pub fn pairs(al: std.mem.Allocator, req: *sdk.spin_http_request_t) std.StringHashMap([]const u8) {
+// purpose - adapter to encapsulate sdk-aware types
+//           and decouple downstream logic that needs the headers
+//           (look at the github.com/jedisc1/zigly fastly edge api)
+
+const Headers = struct {
+    map: std.StringHashMap([]const u8),
+
+    pub fn init(
+        self: Headers,
+        al: std.mem.Allocator,
+        req: *sdk.spin_http_request_t,
+    ) void {
+        self.map = pairs(al, req);
+    }
+};
+
+fn pairs(al: std.mem.Allocator, req: *sdk.spin_http_request_t) std.StringHashMap([]const u8) {
     // notes - not meant as general headers container and
     //         only want specific items (Signature, Content-Type, Digest)
     // TODO encapsulate map to handle deinit and release k/v items
@@ -26,20 +41,3 @@ pub fn pairs(al: std.mem.Allocator, req: *sdk.spin_http_request_t) std.StringHas
 
     return hm;
 }
-
-// convenience routine for transforming request body into JSON tree
-pub fn toTree(al: std.mem.Allocator, ls: std.ArrayList(u8)) error{Malformed}!std.json.ValueTree {
-    const sane_json = std.json.validate(ls.items);
-    if (!sane_json) return error.Malformed;
-    var parser = std.json.Parser.init(al, false);
-    defer parser.deinit();
-    var tree = parser.parse(ls.items) catch return error.Malformed;
-    return tree;
-}
-
-// compare strings (case/everything must match)
-pub fn eq(comptime s1: []const u8, s2: []const u8) bool {
-    return std.mem.eql(u8, s1, s2);
-}
-
-pub const JsonError = error{Malformed};
