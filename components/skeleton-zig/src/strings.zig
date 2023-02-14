@@ -42,4 +42,6 @@ pub fn eq(comptime s1: []const u8, s2: []const u8) bool {
     return std.mem.eql(u8, s1, s2);
 }
 
-pub const JsonError = error{Malformed};
+pub const JsonError = error {Malformed};
+
+

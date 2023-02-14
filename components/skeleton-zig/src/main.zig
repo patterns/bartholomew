@@ -1,13 +1,16 @@
-const std = @import("std");
 
-const sdk = @import("wasm.zig");
+const internal = @import("internal.zig");
 
 pub fn main() void {
-    std.debug.print("main function stub", .{});
+    @import("std").debug.print("workaround ::main error", .{});
 }
 
 comptime {
-    @export(sdk.HttpHandler, .{ .name = "handle-http-request", .linkage = .Strong });
-    @export(sdk.CanonicalAbiRealloc, .{ .name = "canonical_abi_realloc", .linkage = .Strong });
-    @export(sdk.CanonicalAbiFree, .{ .name = "canonical_abi_free", .linkage = .Strong });
+    @export(internal.HttpHandler,
+        .{ .name = "handle-http-request", .linkage = .Strong });
+    @export(internal.CanonicalAbiRealloc,
+        .{ .name = "canonical_abi_realloc", .linkage = .Strong });
+    @export(internal.CanonicalAbiFree,
+        .{ .name = "canonical_abi_free", .linkage = .Strong });
 }
+

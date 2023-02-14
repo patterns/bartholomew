@@ -5,6 +5,7 @@ pub fn build(b: *std.build.Builder) !void {
     const target = b.standardTargetOptions(.{.default_target = ww});
     //const mode = b.standardReleaseOptions();
     const mode = std.builtin.Mode.ReleaseSmall;
+    //const mode = std.builtin.Mode.Debug;
 
     const exe = b.addExecutable("webcomponent", "src/main.zig");
     exe.setBuildMode(mode);
