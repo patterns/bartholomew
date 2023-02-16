@@ -3,9 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.build.Builder) !void {
     const ww = try std.zig.CrossTarget.parse(.{.arch_os_abi = "wasm32-wasi"});
     const target = b.standardTargetOptions(.{.default_target = ww});
-    //const mode = b.standardReleaseOptions();
-    const mode = std.builtin.Mode.ReleaseSmall;
-    //const mode = std.builtin.Mode.Debug;
+    const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("webcomponent", "src/main.zig");
     exe.setBuildMode(mode);

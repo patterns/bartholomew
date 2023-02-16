@@ -30,8 +30,8 @@ pub fn verify(al: std.mem.Allocator, headers: std.StringHashMap([]const u8)) []c
             scratch.startsWith("created") or
             scratch.startsWith("expires") or
             scratch.startsWith("headers") or
-            scratch.startsWith("digest")) {
-
+            scratch.startsWith("digest"))
+        {
             var tup = scratch.split(al, "=") catch return "SIGN.FAIL";
             defer al.free(tup);
             map.put(tup[0], tup[1]) catch return "SIGN.FAIL";
@@ -46,14 +46,10 @@ pub fn verify(al: std.mem.Allocator, headers: std.StringHashMap([]const u8)) []c
         }
     }
 
-
-
     return "SIGN.FAIL";
 }
 
-
-const SignatureError = error {
+const SignatureError = error{
     SignatureKeyId,
     SignatureAbsent,
 };
-

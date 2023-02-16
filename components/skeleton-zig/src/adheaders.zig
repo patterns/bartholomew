@@ -15,7 +15,7 @@ const Headers = struct {
         self: Headers,
         al: std.mem.Allocator,
         req: *sdk.spin_http_request_t,
-        ) void {
+    ) void {
         self.map = pairs(al, req);
     }
 };
@@ -41,5 +41,3 @@ fn pairs(al: std.mem.Allocator, req: *sdk.spin_http_request_t) std.StringHashMap
 
     return hm;
 }
-
-
