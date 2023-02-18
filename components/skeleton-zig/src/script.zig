@@ -18,13 +18,13 @@ else
 impl: Impl,
 
 /// public/callable func member (that implementers are required to provide)
-pub fn run(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
-    return Impl.run(req, res);
+pub fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
+    return Impl.eval(req, res);
 }
 
-// a handler implementation
+// custom script implementation
 const CustomScriptImpl = struct {
-    fn run(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
+    fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
         if (req.method == 1) {
             res.status = @enumToInt(std.http.Status.locked);
         } else {
@@ -35,7 +35,15 @@ const CustomScriptImpl = struct {
 
 // skeleton/template implementation
 const VanillaScriptImpl = struct {
-    fn run(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
+    fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
+        const sz = req.uri.len;
+        const msg = req.uri.ptr[0..sz];
+        std.debug.print("URI: {s}\n", .{msg});
+        std.debug.print("headers count: {d}\n", .{req.headers.len});
+        //for (req.headers) |hd| {
+        //    std.debug.print("kv: {s}, {s}\n", .{ hd.f0.ptr.*, hd.f1.ptr.* });
+        //}
+
         // POST is #1, GET is #0
         if (req.method == 1) {
             res.status = @enumToInt(std.http.Status.teapot);

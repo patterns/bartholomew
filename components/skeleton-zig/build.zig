@@ -1,13 +1,17 @@
 const std = @import("std");
-
-pub fn build(b: *std.build.Builder) !void {
+const bld = std.build;
+pub fn build(b: *bld.Builder) !void {
     const ww = try std.zig.CrossTarget.parse(.{.arch_os_abi = "wasm32-wasi"});
-    const target = b.standardTargetOptions(.{.default_target = ww});
-    const mode = b.standardReleaseOptions();
+    const targ = b.standardTargetOptions(.{.default_target = ww});
+    const mode = b.standardOptimizeOption(.{});
+    const bopt = bld.ExecutableOptions {
+        .name = "webcomponent",
+        .root_source_file = bld.FileSource { .path = "src/main.zig"},
+        .target = targ,
+        .optimize = mode,
+    };
 
-    const exe = b.addExecutable("webcomponent", "src/main.zig");
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
+    const exe = b.addExecutable(bopt);
     exe.install();
     exe.single_threaded = true;
 
