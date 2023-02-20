@@ -36,13 +36,17 @@ const CustomScriptImpl = struct {
 // skeleton/template implementation
 const VanillaScriptImpl = struct {
     fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
-        const sz = req.uri.len;
-        const msg = req.uri.ptr[0..sz];
-        std.debug.print("URI: {s}\n", .{msg});
-        std.debug.print("headers count: {d}\n", .{req.headers.len});
-        //for (req.headers) |hd| {
-        //    std.debug.print("kv: {s}, {s}\n", .{ hd.f0.ptr.*, hd.f1.ptr.* });
-        //}
+        std.debug.print("URI: {s}\n", .{req.uri});
+        std.debug.print("headers: {d}\n", .{req.headers.count()});
+        var it = req.headers.iterator();
+        while (it.next()) |entry| {
+            std.debug.print(": {s}, {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+        }
+        std.debug.print("params: {d}\n", .{req.params.count()});
+        var itp = req.params.iterator();
+        while (itp.next()) |entry| {
+            std.debug.print(": {s}, {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+        }
 
         // POST is #1, GET is #0
         if (req.method == 1) {
