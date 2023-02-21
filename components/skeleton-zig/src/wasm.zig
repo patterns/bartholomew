@@ -2,7 +2,7 @@ const std = @import("std");
 const script = @import("script.zig");
 const Allocator = std.mem.Allocator;
 
-// start exports
+//start exports
 var RET_AREA: [28]u8 align(4) = std.mem.zeroes([28]u8);
 fn GuestHttpStart(
     arg_method: i32,
@@ -10,51 +10,59 @@ fn GuestHttpStart(
     arg_uriLen: i32,
     arg_hdrAddr: WasiAddr,
     arg_hdrLen: i32,
-    arg_prmAddr: WasiAddr,
-    arg_prmLen: i32,
+    arg_paramAddr: WasiAddr,
+    arg_paramLen: i32,
     arg_body: i32,
     arg_bodyAddr: WasiAddr,
     arg_bodyLen: i32,
 ) callconv(.C) WasiAddr {
     const allocator = std.heap.wasm_allocator;
-    // start request init
-    var curi = xdata.init(arg_uriAddr, arg_uriLen);
-    var uri = curi.dupe(allocator);
-    curi.deinit();
-    var body = std.ArrayList(u8).init(allocator);
-    if (arg_body == 1) {
-        var cbod = xdata.init(arg_bodyAddr, arg_bodyLen);
-        body.appendSlice(cbod.ptr[0..cbod.len]) catch {
-            std.debug.panic("FAIL body appendSlice", .{});
-        };
-        cbod.deinit();
-    }
-    var headers = xmap(allocator, arg_hdrAddr, arg_hdrLen);
-    var params = xmap(allocator, arg_prmAddr, arg_prmLen);
     var request = SpinHttpRequest.init(
         allocator,
-        @intCast(HttpMethod, arg_method),
-        uri,
-        headers,
-        params,
-        body,
+        arg_method,
+        arg_uriAddr,
+        arg_uriLen,
+        arg_hdrAddr,
+        arg_hdrLen,
+        arg_paramAddr,
+        arg_paramLen,
+        arg_body,
+        arg_bodyAddr,
+        arg_bodyLen,
     );
-    // end request init
     defer request.deinit();
 
-    var response = SpinHttpResponse{
-        .status = @enumToInt(std.http.Status.not_found),
-        //.body = undefined,
-    };
-
+    var response = SpinHttpResponse.init(allocator);
+    //defer response.deinit();
+    //todo maybe .init to attach handler?
     script.eval(&request, &response);
 
     // mem address of buffer shared to the C/host
-    var addr: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
+    var ad: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
     // copy HTTP status code into the shared buffer
-    @intToPtr([*c]i16, @intCast(usize, addr)).* = @intCast(i16, response.status);
+    @intToPtr([*c]i16, @intCast(usize, ad)).* = @intCast(i16, response.status);
 
-    return addr;
+    // transfer headers and body to shared RET_AREA
+    //if (response.headers.count() != 0) {
+    //    var payload10: [*c]const spin_http_headers_t = &ret.headers.val;
+    //    @intToPtr([*c]i8, @intCast(usize, addr + 4)).* = 1;
+    //    @intToPtr([*c]i32, @intCast(usize, addr + 12)).* = @bitCast(i32, payload10.*.len);
+    //    @intToPtr([*c]i32, ptr + @as(c_int, 8)).* = @intCast(i32, @ptrToInt(payload10.*.ptr));
+    //} else {
+    @intToPtr([*c]i8, @intCast(usize, ad + 4)).* = 0;
+    //}
+    if (response.body.items.len != 0) {
+        var cp = allocator.dupe(u8, response.body.items) catch {
+            std.debug.panic("FAIL response OutOfMem", .{});
+        };
+        @intToPtr([*c]i8, @intCast(usize, ad + 16)).* = 1;
+        @intToPtr([*c]i32, @intCast(usize, ad + 24)).* = @bitCast(i32, cp.len);
+        @intToPtr([*c]i32, @intCast(usize, ad + 20)).* = @intCast(i32, @ptrToInt(cp.ptr));
+    } else {
+        @intToPtr([*c]i8, @intCast(usize, ad + 16)).* = 0;
+    }
+
+    return ad;
 }
 fn CanonicalAbiRealloc(
     arg_ptr: ?*anyopaque,
@@ -72,14 +80,14 @@ fn CanonicalAbiRealloc(
     // null means to _allocate_
     if (arg_ptr == null) {
         var newslice = allocator.alloc(u8, arg_newsz) catch {
-            std.debug.panic("FAIL alloc, oom", .{});
+            std.debug.panic("FAIL alloc OutOfMem", .{});
         };
         return newslice.ptr;
     }
 
     var slice = @ptrCast([*]u8, arg_ptr.?)[0..arg_oldsz];
     var reslice = allocator.realloc(slice, arg_newsz) catch {
-        std.debug.panic("FAIL realloc, oom", .{});
+        std.debug.panic("FAIL realloc OutOfMem", .{});
     };
     return reslice.ptr;
 }
@@ -115,7 +123,7 @@ const xdata = struct {
     pub fn dupe(self: Self, al: Allocator) []u8 {
         const old = self.ptr[0..self.len];
         var cp = al.dupe(u8, old) catch {
-            std.debug.panic("FAIL xdata dupe ()", .{});
+            std.debug.panic("FAIL xdata dupe ", .{});
         };
         return cp;
     }
@@ -127,9 +135,11 @@ const xdata = struct {
     }
 };
 
+// "anon" struct just for address to tuple conversion
+const cstr = extern struct { ptr: [*c]u8, len: usize };
+const crow = extern struct { f0: cstr, f1: cstr };
+// map conversion from C arrays
 fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
-    const cstr = extern struct { ptr: [*c]u8, len: usize };
-    const crow = extern struct { f0: cstr, f1: cstr };
     var rows = @intToPtr([*c]crow, @intCast(usize, addr));
     const count = @intCast(usize, len);
 
@@ -146,22 +156,32 @@ fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
         };
 
         map.put(key, val) catch {
-            std.debug.panic("FAIL hashmap put, {s}", .{key});
+            std.debug.panic("FAIL map put, {s}", .{key});
         };
         // free old kv
         CanonicalAbiFree(@ptrCast(?*anyopaque, kv.f0.ptr), kv.f0.len, 1);
         CanonicalAbiFree(@ptrCast(?*anyopaque, kv.f1.ptr), kv.f1.len, 1);
     }
-    // free the old list
+    // free the old array
     CanonicalAbiFree(@ptrCast(?*anyopaque, rows), count *% 16, 4);
     return map;
 }
 
 // writer for ziglang consumer
 pub const SpinHttpResponse = struct {
+    const Self = @This();
     status: HttpStatus,
-    //headers: spin_http_option_headers_t,
-    //body: SpinHttpOptionBody,
+    headers: std.StringHashMap([]const u8),
+    body: std.ArrayList(u8),
+
+    pub fn init(al: Allocator) Self {
+        return Self{
+            .status = @enumToInt(std.http.Status.not_found),
+            .headers = std.StringHashMap([]const u8).init(al),
+            .body = std.ArrayList(u8).init(al),
+        };
+    }
+    //TODO deinit
 };
 
 // reader for ziglang consumer
@@ -174,21 +194,43 @@ pub const SpinHttpRequest = struct {
     params: std.StringHashMap([]const u8),
     body: std.ArrayList(u8),
 
+    // instantiate from C interop (using addresses)
     pub fn init(
-        a: Allocator,
-        m: HttpMethod,
-        u: []u8,
-        h: std.StringHashMap([]const u8),
-        p: std.StringHashMap([]const u8),
-        b: std.ArrayList(u8),
+        allocator: Allocator,
+        method: i32,
+        uriAddr: WasiAddr,
+        uriLen: i32,
+        hdrAddr: WasiAddr,
+        hdrLen: i32,
+        paramAddr: WasiAddr,
+        paramLen: i32,
+        bodyEnable: i32,
+        bodyAddr: WasiAddr,
+        bodyLen: i32,
     ) Self {
+        var curi = xdata.init(uriAddr, uriLen);
+        var uri = curi.dupe(allocator);
+        curi.deinit();
+
+        var body = std.ArrayList(u8).init(allocator);
+        if (bodyEnable == 1) {
+            var cbod = xdata.init(bodyAddr, bodyLen);
+            body.appendSlice(cbod.ptr[0..cbod.len]) catch {
+                std.debug.panic("FAIL copying body from C addr", .{});
+            };
+            cbod.deinit();
+        }
+
+        var headers = xmap(allocator, hdrAddr, hdrLen);
+        var params = xmap(allocator, paramAddr, paramLen);
+
         return Self{
-            .allocator = a,
-            .method = m,
-            .uri = u,
-            .headers = h,
-            .params = p,
-            .body = b,
+            .allocator = allocator,
+            .method = @intCast(HttpMethod, method),
+            .uri = uri,
+            .headers = headers,
+            .params = params,
+            .body = body,
         };
     }
     pub fn deinit(self: *Self) void {
@@ -199,7 +241,7 @@ pub const SpinHttpRequest = struct {
     }
 };
 
-// see jedisct1/zigly
+// C interop address
 pub const WasiAddr = i32;
 /// HTTP status codes.
 pub const HttpStatus = u16;

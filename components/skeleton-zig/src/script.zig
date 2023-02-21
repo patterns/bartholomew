@@ -2,6 +2,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const was = @import("wasm.zig");
 
+//TODO
+pub const HandlerFn = fn (w: *was.SpinHttpResponse, r: *was.SpinHttpRequest) void;
+
 // builder.zig sets release/optimize mode
 const DEBUG = (builtin.mode == .Debug);
 
@@ -15,7 +18,7 @@ else
     VanillaScriptImpl;
 
 /// primary field that refers to the _active_ implementation
-impl: Impl,
+////impl: Impl,
 
 /// public/callable func member (that implementers are required to provide)
 pub fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
@@ -51,6 +54,12 @@ const VanillaScriptImpl = struct {
         // POST is #1, GET is #0
         if (req.method == 1) {
             res.status = @enumToInt(std.http.Status.teapot);
+            res.headers.put("Content-Type", "application/json") catch {
+                std.debug.print("ERROR response header", .{});
+            };
+            res.body.appendSlice("{\"data\": \"vanilla-test\"}") catch {
+                std.debug.print("ERROR response body", .{});
+            };
         } else {
             res.status = @enumToInt(std.http.Status.method_not_allowed);
         }
