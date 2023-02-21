@@ -57,6 +57,9 @@ const VanillaScriptImpl = struct {
             res.headers.put("Content-Type", "application/json") catch {
                 std.debug.print("ERROR response header", .{});
             };
+            res.headers.put("X-Vanilla-Test", "lorem-ipsum") catch {
+                std.debug.print("ERROR response header", .{});
+            };
             res.body.appendSlice("{\"data\": \"vanilla-test\"}") catch {
                 std.debug.print("ERROR response body", .{});
             };

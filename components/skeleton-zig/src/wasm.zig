@@ -31,38 +31,38 @@ fn GuestHttpStart(
         arg_bodyLen,
     );
     defer request.deinit();
-
     var response = SpinHttpResponse.init(allocator);
-    //defer response.deinit();
+    defer response.deinit();
+
     //todo maybe .init to attach handler?
     script.eval(&request, &response);
 
-    // mem address of buffer shared to the C/host
-    var ad: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
-    // copy HTTP status code into the shared buffer
-    @intToPtr([*c]i16, @intCast(usize, ad)).* = @intCast(i16, response.status);
-
-    // transfer headers and body to shared RET_AREA
-    //if (response.headers.count() != 0) {
-    //    var payload10: [*c]const spin_http_headers_t = &ret.headers.val;
-    //    @intToPtr([*c]i8, @intCast(usize, addr + 4)).* = 1;
-    //    @intToPtr([*c]i32, @intCast(usize, addr + 12)).* = @bitCast(i32, payload10.*.len);
-    //    @intToPtr([*c]i32, ptr + @as(c_int, 8)).* = @intCast(i32, @ptrToInt(payload10.*.ptr));
-    //} else {
-    @intToPtr([*c]i8, @intCast(usize, ad + 4)).* = 0;
-    //}
+    // address of memory shared to the C/host
+    var re: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
+    // copy HTTP status code into the shared mem
+    @intToPtr([*c]i16, @intCast(usize, re)).* = @intCast(i16, response.status);
+    // copy headers to shared mem
+    if (response.headers.count() != 0) {
+        var ar = response.headers_as_array(allocator).items;
+        @intToPtr([*c]i8, @intCast(usize, re + 4)).* = 1;
+        @intToPtr([*c]i32, @intCast(usize, re + 12)).* = @bitCast(i32, ar.len);
+        @intToPtr([*c]i32, @intCast(usize, re + 8)).* = @intCast(i32, @ptrToInt(ar.ptr));
+    } else {
+        @intToPtr([*c]i8, @intCast(usize, re + 4)).* = 0;
+    }
+    // copy body to shared mem
     if (response.body.items.len != 0) {
         var cp = allocator.dupe(u8, response.body.items) catch {
             std.debug.panic("FAIL response OutOfMem", .{});
         };
-        @intToPtr([*c]i8, @intCast(usize, ad + 16)).* = 1;
-        @intToPtr([*c]i32, @intCast(usize, ad + 24)).* = @bitCast(i32, cp.len);
-        @intToPtr([*c]i32, @intCast(usize, ad + 20)).* = @intCast(i32, @ptrToInt(cp.ptr));
+        @intToPtr([*c]i8, @intCast(usize, re + 16)).* = 1;
+        @intToPtr([*c]i32, @intCast(usize, re + 24)).* = @bitCast(i32, cp.len);
+        @intToPtr([*c]i32, @intCast(usize, re + 20)).* = @intCast(i32, @ptrToInt(cp.ptr));
     } else {
-        @intToPtr([*c]i8, @intCast(usize, ad + 16)).* = 0;
+        @intToPtr([*c]i8, @intCast(usize, re + 16)).* = 0;
     }
 
-    return ad;
+    return re;
 }
 fn CanonicalAbiRealloc(
     arg_ptr: ?*anyopaque,
@@ -120,9 +120,9 @@ const xdata = struct {
         };
     }
     // convert as slice w/ new memory (todo provide different return types explicitly i.e., dupeZ for the sentinel)
-    pub fn dupe(self: Self, al: Allocator) []u8 {
+    pub fn dupe(self: Self, allocator: Allocator) []u8 {
         const old = self.ptr[0..self.len];
-        var cp = al.dupe(u8, old) catch {
+        var cp = allocator.dupe(u8, old) catch {
             std.debug.panic("FAIL xdata dupe ", .{});
         };
         return cp;
@@ -135,12 +135,9 @@ const xdata = struct {
     }
 };
 
-// "anon" struct just for address to tuple conversion
-const cstr = extern struct { ptr: [*c]u8, len: usize };
-const crow = extern struct { f0: cstr, f1: cstr };
 // map conversion from C arrays
 fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
-    var rows = @intToPtr([*c]crow, @intCast(usize, addr));
+    var rows = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
     const count = @intCast(usize, len);
 
     var map = std.StringHashMap([]const u8).init(al);
@@ -174,14 +171,39 @@ pub const SpinHttpResponse = struct {
     headers: std.StringHashMap([]const u8),
     body: std.ArrayList(u8),
 
-    pub fn init(al: Allocator) Self {
+    pub fn init(allocator: Allocator) Self {
         return Self{
             .status = @enumToInt(std.http.Status.not_found),
-            .headers = std.StringHashMap([]const u8).init(al),
-            .body = std.ArrayList(u8).init(al),
+            .headers = std.StringHashMap([]const u8).init(allocator),
+            .body = std.ArrayList(u8).init(allocator),
         };
     }
-    //TODO deinit
+    // conversion for C/interop
+    pub fn headers_as_array(self: Self, allocator: Allocator) std.ArrayList(WasiTuple) {
+        var arr = std.ArrayList(WasiTuple).init(allocator);
+        var iter = self.headers.iterator();
+        while (iter.next()) |entry| {
+            var key = allocator.dupe(u8, entry.key_ptr.*) catch {
+                std.debug.panic("FAIL headers key dupe", .{});
+            };
+            var val = allocator.dupe(u8, entry.value_ptr.*) catch {
+                std.debug.panic("FAIL headers val dupe", .{});
+            };
+            var row = WasiTuple{
+                .f0 = WasiStr{ .ptr = key.ptr, .len = key.len },
+                .f1 = WasiStr{ .ptr = val.ptr, .len = val.len },
+            };
+            arr.append(row) catch {
+                std.debug.panic("FAIL headers slice", .{});
+            };
+        }
+        return arr;
+    }
+    pub fn deinit(self: *Self) void {
+        //TODO free map items
+        self.headers.deinit();
+        self.body.deinit();
+    }
 };
 
 // reader for ziglang consumer
@@ -194,7 +216,7 @@ pub const SpinHttpRequest = struct {
     params: std.StringHashMap([]const u8),
     body: std.ArrayList(u8),
 
-    // instantiate from C interop (using addresses)
+    // instantiate from C/interop (using addresses)
     pub fn init(
         allocator: Allocator,
         method: i32,
@@ -236,13 +258,18 @@ pub const SpinHttpRequest = struct {
     pub fn deinit(self: *Self) void {
         self.allocator.free(self.uri);
         self.body.deinit();
+        //TODO free map items
         self.headers.deinit();
         self.params.deinit();
     }
 };
 
-// C interop address
-pub const WasiAddr = i32;
+// C/interop address
+const WasiAddr = i32;
+// "anon" struct just for address to tuple C/interop
+const WasiStr = extern struct { ptr: [*c]u8, len: usize };
+const WasiTuple = extern struct { f0: WasiStr, f1: WasiStr };
+
 /// HTTP status codes.
 pub const HttpStatus = u16;
 /// HTTP method verbs.
