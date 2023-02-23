@@ -1,5 +1,5 @@
 const std = @import("std");
-const script = @import("script.zig");
+const webfinger = @import("webfinger.zig");
 const Allocator = std.mem.Allocator;
 
 //TODO think
@@ -37,8 +37,9 @@ fn GuestHttpStart(
     var response = HttpResponse.init(allocator);
     defer response.deinit();
 
-    script.init(.{ .attach = script.AttachOption.vanilla });
-    script.eval(&response, &request);
+    ////script.init(.{.attach = script.AttachOption.vanilla});
+    ////script.eval(&response, &request);
+    webfinger.eval(&response, &request);
 
     // address of memory shared to the C/host
     var re: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
@@ -236,10 +237,6 @@ pub const HttpRequest = struct {
         var curi = xdata.init(uriAddr, uriLen);
         var uri = curi.dupe(allocator);
         curi.deinit();
-        _ = std.Uri.parse(uri) catch |detail| {
-            std.debug.print("ERROR uri parse, {any}\n", .{detail});
-            //TODO reconstruct full uri
-        };
 
         var body = std.ArrayList(u8).init(allocator);
         if (bodyEnable == 1) {
