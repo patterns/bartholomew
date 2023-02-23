@@ -2,43 +2,56 @@ const std = @import("std");
 const builtin = @import("builtin");
 const was = @import("wasm.zig");
 
-//TODO
-pub const HandlerFn = fn (w: *was.SpinHttpResponse, r: *was.SpinHttpRequest) void;
-
-// builder.zig sets release/optimize mode
-const DEBUG = (builtin.mode == .Debug);
-
-// file struct type
+// root/file struct
 const Script = @This();
 
-// simple toggle to demonstrate multiple implementations
-const Impl = if (!DEBUG)
-    CustomScriptImpl
-else
-    VanillaScriptImpl;
+const Impl = struct { attached: bool, eval: was.EvalFn };
 
-/// primary field that refers to the _active_ implementation
-////impl: Impl,
+var script_chain: [2]Impl = undefined;
 
-/// public/callable func member (that implementers are required to provide)
-pub fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
-    return Impl.eval(req, res);
+pub const AttachOption = enum { vanilla, custom, both };
+
+// attach/register scripts
+pub fn init(config: anytype) void {
+    script_chain[0] = Impl{ .attached = false, .eval = VanillaScriptImpl.eval };
+    script_chain[1] = Impl{ .attached = false, .eval = CustomScriptImpl.eval };
+
+    switch (config.attach) {
+        .custom => script_chain[1].attached = true,
+        .both => {
+            script_chain[0].attached = true;
+            script_chain[1].attached = true;
+        },
+        else => script_chain[0].attached = true,
+    }
+}
+
+// express scripts which are attached
+pub fn eval(w: *was.HttpResponse, r: *was.HttpRequest) void {
+    for (script_chain) |script| {
+        if (script.attached) {
+            // mutates the response
+            script.eval(w, r);
+        }
+    }
 }
 
 // custom script implementation
 const CustomScriptImpl = struct {
-    fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
+    var attached = false;
+    fn eval(w: *was.HttpResponse, req: *was.HttpRequest) void {
         if (req.method == 1) {
-            res.status = @enumToInt(std.http.Status.locked);
+            w.status = @enumToInt(std.http.Status.locked);
         } else {
-            res.status = @enumToInt(std.http.Status.method_not_allowed);
+            w.status = @enumToInt(std.http.Status.method_not_allowed);
         }
     }
 };
 
 // skeleton/template implementation
 const VanillaScriptImpl = struct {
-    fn eval(req: *was.SpinHttpRequest, res: *was.SpinHttpResponse) void {
+    var attached = false;
+    fn eval(w: *was.HttpResponse, req: *was.HttpRequest) void {
         std.debug.print("URI: {s}\n", .{req.uri});
         std.debug.print("headers: {d}\n", .{req.headers.count()});
         var it = req.headers.iterator();
@@ -53,18 +66,18 @@ const VanillaScriptImpl = struct {
 
         // POST is #1, GET is #0
         if (req.method == 1) {
-            res.status = @enumToInt(std.http.Status.teapot);
-            res.headers.put("Content-Type", "application/json") catch {
+            w.status = @enumToInt(std.http.Status.teapot);
+            w.headers.put("Content-Type", "application/json") catch {
                 std.debug.print("ERROR response header", .{});
             };
-            res.headers.put("X-Vanilla-Test", "lorem-ipsum") catch {
+            w.headers.put("X-Vanilla-Test", "lorem-ipsum") catch {
                 std.debug.print("ERROR response header", .{});
             };
-            res.body.appendSlice("{\"data\": \"vanilla-test\"}") catch {
+            w.body.appendSlice("{\"data\": \"vanilla-test\"}") catch {
                 std.debug.print("ERROR response body", .{});
             };
         } else {
-            res.status = @enumToInt(std.http.Status.method_not_allowed);
+            w.status = @enumToInt(std.http.Status.method_not_allowed);
         }
     }
 };

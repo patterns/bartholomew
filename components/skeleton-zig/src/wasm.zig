@@ -2,7 +2,10 @@ const std = @import("std");
 const script = @import("script.zig");
 const Allocator = std.mem.Allocator;
 
-//start exports
+//TODO think
+pub const EvalFn = *const fn (w: *HttpResponse, r: *HttpRequest) void;
+
+// start exports required by host
 var RET_AREA: [28]u8 align(4) = std.mem.zeroes([28]u8);
 fn GuestHttpStart(
     arg_method: i32,
@@ -17,7 +20,7 @@ fn GuestHttpStart(
     arg_bodyLen: i32,
 ) callconv(.C) WasiAddr {
     const allocator = std.heap.wasm_allocator;
-    var request = SpinHttpRequest.init(
+    var request = HttpRequest.init(
         allocator,
         arg_method,
         arg_uriAddr,
@@ -31,11 +34,11 @@ fn GuestHttpStart(
         arg_bodyLen,
     );
     defer request.deinit();
-    var response = SpinHttpResponse.init(allocator);
+    var response = HttpResponse.init(allocator);
     defer response.deinit();
 
-    //todo maybe .init to attach handler?
-    script.eval(&request, &response);
+    script.init(.{ .attach = script.AttachOption.vanilla });
+    script.eval(&response, &request);
 
     // address of memory shared to the C/host
     var re: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
@@ -100,10 +103,10 @@ fn CanonicalAbiFree(
     if (arg_size == @intCast(usize, 0)) return;
     if (arg_ptr == null) return;
 
-    const zslice = @ptrCast([*]u8, arg_ptr.?)[0..arg_size];
-    std.heap.wasm_allocator.free(zslice);
+    const slice = @ptrCast([*]u8, arg_ptr.?)[0..arg_size];
+    std.heap.wasm_allocator.free(slice);
 }
-//end exports
+// end exports required by host
 
 // The basic type according to translate-c
 // ([*c]u8 is both char* and uint8*)
@@ -165,7 +168,7 @@ fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
 }
 
 // writer for ziglang consumer
-pub const SpinHttpResponse = struct {
+pub const HttpResponse = struct {
     const Self = @This();
     status: HttpStatus,
     headers: std.StringHashMap([]const u8),
@@ -207,7 +210,7 @@ pub const SpinHttpResponse = struct {
 };
 
 // reader for ziglang consumer
-pub const SpinHttpRequest = struct {
+pub const HttpRequest = struct {
     const Self = @This();
     allocator: Allocator,
     method: HttpMethod,
@@ -233,6 +236,10 @@ pub const SpinHttpRequest = struct {
         var curi = xdata.init(uriAddr, uriLen);
         var uri = curi.dupe(allocator);
         curi.deinit();
+        _ = std.Uri.parse(uri) catch |detail| {
+            std.debug.print("ERROR uri parse, {any}\n", .{detail});
+            //TODO reconstruct full uri
+        };
 
         var body = std.ArrayList(u8).init(allocator);
         if (bodyEnable == 1) {
