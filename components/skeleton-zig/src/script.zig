@@ -1,11 +1,10 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const was = @import("wasm.zig");
+const lib = @import("lib.zig");
 
 // root/file struct
 const Script = @This();
 
-const Impl = struct { attached: bool, eval: was.EvalFn };
+const Impl = struct { attached: bool, eval: lib.EvalFn };
 
 var script_chain: [2]Impl = undefined;
 
@@ -27,7 +26,7 @@ pub fn init(config: anytype) void {
 }
 
 // express scripts which are attached
-pub fn eval(w: *was.HttpResponse, r: *was.HttpRequest) void {
+pub fn eval(w: *lib.HttpResponse, r: *lib.HttpRequest) void {
     for (script_chain) |script| {
         if (script.attached) {
             // mutates the response
@@ -39,7 +38,7 @@ pub fn eval(w: *was.HttpResponse, r: *was.HttpRequest) void {
 // custom script implementation
 const CustomScriptImpl = struct {
     var attached = false;
-    fn eval(w: *was.HttpResponse, req: *was.HttpRequest) void {
+    fn eval(w: *lib.HttpResponse, req: *lib.HttpRequest) void {
         if (req.method == 1) {
             w.status = @enumToInt(std.http.Status.locked);
         } else {
@@ -51,7 +50,7 @@ const CustomScriptImpl = struct {
 // skeleton/template implementation
 const VanillaScriptImpl = struct {
     var attached = false;
-    fn eval(w: *was.HttpResponse, req: *was.HttpRequest) void {
+    fn eval(w: *lib.HttpResponse, req: *lib.HttpRequest) void {
         std.debug.print("URI: {s}\n", .{req.uri});
         std.debug.print("headers: {d}\n", .{req.headers.count()});
         var it = req.headers.iterator();

@@ -1,11 +1,11 @@
-const was = @import("wasm.zig");
+const lib = @import("lib.zig");
 
 pub fn main() void {
-    @import("std").debug.print("workaround ::main error", .{});
+    @import("std").debug.print("DEBUG placeholder ", .{});
 }
 
 comptime {
-    @export(was.GuestHttpStart, .{ .name = "handle-http-request", .linkage = .Strong });
-    @export(was.CanonicalAbiRealloc, .{ .name = "canonical_abi_realloc", .linkage = .Strong });
-    @export(was.CanonicalAbiFree, .{ .name = "canonical_abi_free", .linkage = .Strong });
+    @export(lib.GuestHttpStart, .{ .name = "handle-http-request", .linkage = .Strong });
+    @export(lib.CanonicalAbiRealloc, .{ .name = "canonical_abi_realloc", .linkage = .Strong });
+    @export(lib.CanonicalAbiFree, .{ .name = "canonical_abi_free", .linkage = .Strong });
 }

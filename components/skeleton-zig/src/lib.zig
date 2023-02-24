@@ -2,10 +2,10 @@ const std = @import("std");
 const webfinger = @import("webfinger.zig");
 const Allocator = std.mem.Allocator;
 
-//TODO think
-pub const EvalFn = *const fn (w: *HttpResponse, r: *HttpRequest) void;
+//TODO think interface
+pub const EvalFn = *const fn (a: Allocator, w: *HttpResponse, r: *HttpRequest) void;
 
-// start exports required by host
+// start exports to comply with host
 var RET_AREA: [28]u8 align(4) = std.mem.zeroes([28]u8);
 fn GuestHttpStart(
     arg_method: i32,
@@ -37,9 +37,10 @@ fn GuestHttpStart(
     var response = HttpResponse.init(allocator);
     defer response.deinit();
 
-    ////script.init(.{.attach = script.AttachOption.vanilla});
-    ////script.eval(&response, &request);
-    webfinger.eval(&response, &request);
+    //TODO use comptime to catch problems with compiler
+    //script.init(.{.attach = script.AttachOption.vanilla});
+    //script.eval(&response, &request);
+    webfinger.eval(allocator, &response, &request);
 
     // address of memory shared to the C/host
     var re: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
@@ -107,7 +108,7 @@ fn CanonicalAbiFree(
     const slice = @ptrCast([*]u8, arg_ptr.?)[0..arg_size];
     std.heap.wasm_allocator.free(slice);
 }
-// end exports required by host
+// end exports to comply with host
 
 // The basic type according to translate-c
 // ([*c]u8 is both char* and uint8*)
