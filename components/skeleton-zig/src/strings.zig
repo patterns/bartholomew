@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const log = std.log;
 const Allocator = mem.Allocator;
 
 // convenience routine for transforming request body into JSON tree
@@ -10,6 +11,20 @@ pub fn toTree(allocator: Allocator, ls: std.ArrayList(u8)) error{Malformed}!std.
     defer parser.deinit();
     var tree = parser.parse(ls.items) catch return error.Malformed;
     return tree;
+}
+
+// extract path from request
+pub fn toPath(ur: []const u8) []const u8 {
+    // expect /path?...
+    var delim: usize = undefined;
+    if (mem.indexOf(u8, ur, "?")) |index| {
+        delim = index;
+    } else {
+        delim = ur.len;
+    }
+    const left = ur[0..delim];
+
+    return left;
 }
 
 // convenience routine for extracting query params

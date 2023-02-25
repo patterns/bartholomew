@@ -13,6 +13,10 @@ pub fn internal(w: *lib.HttpResponse) void {
     code(w, std.http.Status.internal_server_error);
 }
 
+pub fn notfound(w: *lib.HttpResponse) void {
+    code(w, std.http.Status.not_found);
+}
+
 pub fn forbidden(w: *lib.HttpResponse) void {
     code(w, std.http.Status.forbidden);
 }
