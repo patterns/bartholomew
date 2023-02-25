@@ -11,11 +11,11 @@ var script_chain: [2]Impl = undefined;
 pub const AttachOption = enum { vanilla, custom, both };
 
 // attach/register scripts
-pub fn init(config: anytype) void {
+pub fn init(option: anytype) void {
     script_chain[0] = Impl{ .attached = false, .eval = VanillaScriptImpl.eval };
     script_chain[1] = Impl{ .attached = false, .eval = CustomScriptImpl.eval };
 
-    switch (config.attach) {
+    switch (option.attach) {
         .custom => script_chain[1].attached = true,
         .both => {
             script_chain[0].attached = true;

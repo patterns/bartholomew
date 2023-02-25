@@ -43,26 +43,13 @@ pub fn toPairs(allocator: Allocator, ur: []const u8) std.StringHashMap([]const u
         if (toKeyVal(pair)) |kv| {
             arr = kv;
         } else {
-            std.debug.print("WARN unexpected param format: {s}\n", .{pair});
+            std.log.warn(" unexpected param format: {s}\n", .{pair});
             break;
         }
         addParam(allocator, &params, arr) catch {
             std.debug.panic("FAIL params put", .{});
             break;
         };
-
-        //const key = allocator.dupe(u8, arr[0]) catch {
-        //    std.debug.panic("FAIL params key", .{});
-        //    break;
-        //};
-        //const val = allocator.dupe(u8, arr[1]) catch {
-        //    std.debug.panic("FAIL params val", .{});
-        //    break;
-        //};
-        //params.put(key, val) catch {
-        //    std.debug.panic("FAIL params put", .{});
-        //    break;
-        //};
     }
 
     // add tests (multiple 'resource' results in last one)
@@ -80,7 +67,6 @@ fn toKeyVal(remain: []const u8) ?[2][]const u8 {
     }
     const key = remain[0..div];
     const val = remain[(div + 1)..sz];
-    std.debug.print("DEBUG k/v, {s} / {s}\n", .{ key, val });
 
     //TODO ?should this be a struct
     var arr = [2][]const u8{ key, val };
