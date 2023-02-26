@@ -30,7 +30,7 @@ const ActorImpl = struct {
         };
 
         // ask host for actor setting
-        const who = config.SelfActor() orelse "00000";
+        const who = config.selfActor() orelse "00000";
 
         const branch = unknownActor(allocator, req.uri, who) catch {
             log.err("allocPrint, OutOfMem", .{});

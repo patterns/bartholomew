@@ -68,8 +68,8 @@ fn formatResource(allocator: Allocator) !std.ArrayList([]const u8) {
     var all = std.ArrayList([]const u8).init(allocator);
     errdefer all.deinit();
 
-    const who = config.SelfActor() orelse "00000";
-    const subd = config.SiteSubdomain() orelse "00000";
+    const who = config.selfActor() orelse "00000";
+    const subd = config.siteSubdomain() orelse "00000";
 
     //case "acct:self@subd":
     const c1 = try std.fmt.allocPrint(allocator, "acct:{s}@{s}", .{ who, subd });

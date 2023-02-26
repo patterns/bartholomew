@@ -1,10 +1,13 @@
 const std = @import("std");
 
-pub fn SelfActor() ?[]u8 {
+pub fn selfActor() ?[]u8 {
     return get("self_actor");
 }
-pub fn SiteSubdomain() ?[]u8 {
+pub fn siteSubdomain() ?[]u8 {
     return get("site_subdomain");
+}
+pub fn redisAddress() ?[]u8 {
+    return get("redis_address");
 }
 
 /////////////////////////////////////////////////////////////
@@ -37,7 +40,8 @@ pub fn get(key: []const u8) ?[]u8 {
         const len_ptr = @intToPtr([*c]i32, @intCast(usize, address + 8));
         const len_val = @bitCast(usize, len_ptr.*);
         setting = field_ptr[0..len_val];
-        // TODO dupe, and deallocate old data (except, what if multiple random lookups)
+        // TODO dupe, and deallocate old data
+        // (except, if multiple random lookups, need local cache)
     } else {
         // one means error
         std.log.err(" conf get: (more detail todo)\n", .{});

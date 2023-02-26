@@ -1,6 +1,7 @@
 const std = @import("std");
 //const webfinger = @import("webfinger.zig");
-const actor = @import("actor.zig");
+//const actor = @import("actor.zig");
+const outbox = @import("outbox.zig");
 const Allocator = std.mem.Allocator;
 
 //TODO think interface
@@ -42,7 +43,8 @@ fn GuestHttpStart(
     //script.init(.{.attach = script.AttachOption.vanilla});
     //script.eval(&response, &request);
     //webfinger.eval(allocator, &response, &request);
-    actor.eval(allocator, &response, &request);
+    //actor.eval(allocator, &response, &request);
+    outbox.eval(allocator, &response, &request);
 
     // address of memory shared to the C/host
     var re: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
