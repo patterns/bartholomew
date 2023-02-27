@@ -2,10 +2,10 @@ const std = @import("std");
 const lib = @import("lib.zig");
 
 pub const std_options = struct {
-    pub const log_level = .warn;
+    pub const log_level = .debug;
 };
 pub fn main() void {
-    @import("std").debug.print("DEBUG placeholder ", .{});
+    std.debug.print("DEBUG placeholder ", .{});
 }
 
 comptime {

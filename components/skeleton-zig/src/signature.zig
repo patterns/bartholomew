@@ -1,55 +1,80 @@
 const std = @import("std");
-const Zigstr = @import("Zigstr");
 
-// http signature
-// ? may need the headers sanitized before this point
-// ? the 2019 ietf draft specifies ASCII
-pub fn verify(al: std.mem.Allocator, headers: std.StringHashMap([]const u8)) []const u8 {
-    var map = std.StringHashMap([]const u8).init(al);
-    defer map.deinit();
-    // 1. extract keyId, header, signature, digest
-    // 2. calc checksum
+const Allocator = std.mem.Allocator;
+const log = std.log;
 
-    var input = headers.get("signature") orelse "SIGN.FAIL";
+// TODO ?outbound http need to be enabled per destination
+//      which may make it impossible to allow every possible site of the public PEM key
+//      (maybe we want to make a proxy that handles the trip to these destinations)
+//      so use a configuration setting to allow toggling.
 
-    var str = Zigstr.fromConstBytes(al, input) catch return "SIGN.FAIL";
-    defer str.deinit();
+pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
+    const public = option.public;
+    const req = option.request;
+    const hdr = req.headers;
 
-    var split_iter = str.splitIter(",");
+    log.debug("whether need outbound_http, {any}\n", .{public});
 
-    //DEBUG
-    // look for the pattern ,name="value"
-    // may need to trim whitespace
-    while (split_iter.next()) |kv| {
-        var scratch = Zigstr.fromConstBytes(al, kv) catch return "SIGN.FAIL";
-        defer scratch.deinit();
+    const req_headers = hdr.get("headers") orelse "00000";
+    log.debug("sig hdr, {s}\n", .{req_headers});
+    var iter = std.mem.split(u8, req_headers, " ");
+    const first = iter.first();
+    if (!std.mem.eql(u8, "(request-target)", first)) {
+        // input order always starts with
+        log.err("sig hdr unkown format, \n", .{});
 
-        if (scratch.startsWith("keyId") or
-            scratch.startsWith("signature") or
-            scratch.startsWith("algorithm") or
-            scratch.startsWith("created") or
-            scratch.startsWith("expires") or
-            scratch.startsWith("headers") or
-            scratch.startsWith("digest"))
-        {
-            var tup = scratch.split(al, "=") catch return "SIGN.FAIL";
-            defer al.free(tup);
-            map.put(tup[0], tup[1]) catch return "SIGN.FAIL";
+        return error.SignatureFormat;
+    }
+
+    // construct input string based on the headers field
+    var input_string = std.ArrayList(u8).init(allocator);
+    defer input_string.deinit();
+    const writer = input_string.writer();
+    const method = fmtMethod(req.method);
+    try writer.print("{0s}: {1s} {2s}", .{ first, method, req.uri });
+
+    while (iter.next()) |fldname| {
+        if (hdr.get(fldname)) |fldval| {
+            log.debug("hdr val, {s}\n", .{fldval});
+            try writer.print("\n{0s}: {1s}", .{ fldname, fldval });
+        } else {
+            log.err("sig required hdr, {s}\n", .{fldname});
+            return "";
         }
     }
 
-    // count of expected pairs
-    if (map.contains("keyId") and map.contains("digest")) {
-        var value = map.get("keyId");
-        if (value) |v| {
-            return v;
-        }
-    }
+    log.debug("sig input, {s}\n", .{input_string.items});
 
-    return "SIGN.FAIL";
+    const sha = std.crypto.hash.sha2.Sha256;
+    var buf: [32]u8 = std.mem.zeroes([32]u8);
+    sha.hash(input_string.items, &buf, sha.Options{});
+    log.debug("sha, {any}\n", .{buf});
+
+    ////std.crypto.ecdsa.Signature.verify(msg, pubkey);
+
+    return "PLCHOLDER";
+}
+
+//        if (scratch.startsWith("keyId") or
+//            scratch.startsWith("algorithm") or
+//            scratch.startsWith("created") or
+//            scratch.startsWith("expires") or
+
+fn fmtMethod(m: u8) []const u8 {
+    switch (m) {
+        0 => return "get",
+        1 => return "post",
+        2 => return "put",
+        3 => return "delete",
+        4 => return "patch",
+        5 => return "head",
+        6 => return "options",
+        else => unreachable,
+    }
 }
 
 const SignatureError = error{
     SignatureKeyId,
     SignatureAbsent,
+    SignatureFormat,
 };

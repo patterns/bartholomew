@@ -9,6 +9,9 @@ pub fn siteSubdomain() ?[]u8 {
 pub fn redisAddress() ?[]u8 {
     return get("redis_address");
 }
+pub fn httpsigProxy() ?[]u8 {
+    return get("httpsig_proxy");
+}
 
 /////////////////////////////////////////////////////////////
 // WASI C/interop
