@@ -41,7 +41,7 @@ const WebfingerImpl = struct {
 // check query param 'resource'
 fn unknownResource(allocator: Allocator, ur: []const u8) bool {
     var match = false;
-    var map = str.toPairs(allocator, ur);
+    var map = str.qryParams(allocator, ur);
     defer map.deinit();
 
     if (map.get("resource")) |target| {

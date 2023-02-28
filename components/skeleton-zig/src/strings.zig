@@ -28,23 +28,49 @@ pub fn toPath(ur: []const u8) []const u8 {
 }
 
 // convenience routine for extracting query params
-pub fn toPairs(allocator: Allocator, ur: []const u8) std.StringHashMap([]const u8) {
-    var params = std.StringHashMap([]const u8).init(allocator);
-    errdefer params.deinit();
+pub fn qryParams(allocator: Allocator, txt: []const u8) std.StringHashMap([]const u8) {
     // expect /path?field1=val1&field2=val2
-
     var start: usize = undefined;
-    if (mem.indexOf(u8, ur, "?")) |index| {
+
+    if (mem.indexOf(u8, txt, "?")) |index| {
         // index inclusive (so +1 to skip '?')
         start = index + 1;
     } else {
-        return params;
+        // ?should we use error type here
+        return std.StringHashMap([]const u8).init(allocator);
     }
 
-    var remain = ur[start..ur.len];
-    if (!mem.containsAtLeast(u8, remain, 1, "&")) {
+    var remain = txt[start..txt.len];
+    return txtPairs(allocator, .{
+        .data = remain,
+        .delim = "&",
+        .trim = null,
+    });
+}
+
+// convenience routine for the signature header
+pub fn sigPairs(allocator: Allocator, raw: []const u8) std.StringHashMap([]const u8) {
+    // expect field1="val1",field2="val2"
+    const discard: ?[]const u8 = "\"";
+    return txtPairs(allocator, .{
+        .data = raw,
+        .delim = ",",
+        .trim = discard,
+    });
+}
+
+fn txtPairs(allocator: Allocator, option: anytype) std.StringHashMap([]const u8) {
+    const data: []const u8 = option.data;
+    const delim: []const u8 = option.delim;
+
+    // expect field1=val1<delim>field2=val2
+
+    var params = std.StringHashMap([]const u8).init(allocator);
+    errdefer params.deinit();
+
+    if (!mem.containsAtLeast(u8, data, 1, delim)) {
         // possibly one/single pair
-        if (toKeyVal(remain)) |kv| {
+        if (toKeyVal(data, option)) |kv| {
             addParam(allocator, &params, kv) catch {
                 std.debug.panic("FAIL pair OutOfMem", .{});
             };
@@ -52,10 +78,10 @@ pub fn toPairs(allocator: Allocator, ur: []const u8) std.StringHashMap([]const u
         return params;
     }
 
-    var iter = mem.split(u8, remain, "&");
+    var iter = mem.split(u8, data, delim);
     while (iter.next()) |pair| {
         var arr: [2][]const u8 = undefined;
-        if (toKeyVal(pair)) |kv| {
+        if (toKeyVal(pair, option)) |kv| {
             arr = kv;
         } else {
             std.log.warn(" unexpected param format: {s}\n", .{pair});
@@ -72,7 +98,7 @@ pub fn toPairs(allocator: Allocator, ur: []const u8) std.StringHashMap([]const u
 }
 
 // take 'field1=val1' and return {field1, val1}
-fn toKeyVal(remain: []const u8) ?[2][]const u8 {
+fn toKeyVal(remain: []const u8, option: anytype) ?[2][]const u8 {
     const sz = remain.len;
     var div: usize = undefined;
     if (mem.indexOf(u8, remain, "=")) |index| {
@@ -82,9 +108,14 @@ fn toKeyVal(remain: []const u8) ?[2][]const u8 {
     }
     const key = remain[0..div];
     const val = remain[(div + 1)..sz];
+    var cleaned = val;
+
+    if (option.trim) |discard| {
+        cleaned = std.mem.trim(u8, val, discard);
+    }
 
     //TODO ?should this be a struct
-    var arr = [2][]const u8{ key, val };
+    var arr = [2][]const u8{ key, cleaned };
 
     return arr;
 }

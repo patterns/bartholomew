@@ -27,6 +27,37 @@ pub fn enqueue(allocator: std.mem.Allocator, content: std.json.ValueTree) !void 
     saveEvent(caddr, ckey, cpayload);
 }
 
+// capture extra request detail to debug/tests
+pub fn debugDetail(allocator: std.mem.Allocator, option: anytype) !void {
+    const tree = option.tree;
+    const req = option.req;
+
+    var bucket = std.ArrayList(u8).init(allocator);
+    defer bucket.deinit();
+    try tree.root.jsonStringify(.{}, bucket.writer());
+    try bucket.appendSlice("##DEBUG##");
+    var iter = req.headers.iterator();
+    while (iter.next()) |entry| {
+        try bucket.writer().print(";{s}#{s}", .{ entry.key_ptr.*, entry.value_ptr.* });
+    }
+
+    // duplicate payload to sentinel-terminated
+    const cpayload = try allocator.dupeZ(u8, bucket.items);
+    defer allocator.free(cpayload);
+
+    // duplicate id to sentinel-terminated
+    const key = tree.root.Object.get("id").?.String;
+    const ckey = try allocator.dupeZ(u8, key);
+    defer allocator.free(ckey);
+
+    // duplicate redis address to sentinel-terminated
+    const addr: []const u8 = config.redisAddress() orelse "redis://127.0.0.1:6379";
+    const caddr = try allocator.dupeZ(u8, addr);
+    defer allocator.free(caddr);
+
+    saveEvent(caddr, ckey, cpayload);
+}
+
 /////////////////////////////////////////////////////////////
 // WASI C/interop
 

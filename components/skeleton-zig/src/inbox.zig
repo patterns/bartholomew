@@ -18,9 +18,6 @@ pub fn eval(allocator: Allocator, w: *lib.HttpResponse, r: *lib.HttpRequest) voi
 
 const InboxImpl = struct {
     fn eval(allocator: Allocator, w: *lib.HttpResponse, req: *lib.HttpRequest) void {
-
-        //TODO verify signature
-        //     verify timestamp
         const bad = unknownSignature(allocator, req);
         if (bad) {
             return status.forbidden(w);
@@ -34,7 +31,8 @@ const InboxImpl = struct {
         defer tree.deinit();
 
         // capture for now (build processing later)
-        redis.enqueue(allocator, tree) catch {
+        ////redis.enqueue(allocator, logev) catch {
+        redis.debugDetail(allocator, .{ .tree = tree, .req = req }) catch {
             log.err("save failed", .{});
             return status.internal(w);
         };
@@ -47,31 +45,25 @@ const InboxImpl = struct {
     }
 };
 
+////const MakeKey = fn (uri: []const u8) std.crypto.sign.sha256.PublicKey;
 fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
-    var bad = true;
-    // 1. from the signature header, read the 'keyId'
-    // 2. fetch the public key using the value in step#1
-    // 3. from the signature header, read the 'headers'
-    // 4. construct the input-string data using the value in step#3
-    // 5. calculate the expected signature with the public key and input-string
-    // 6. compare against the value in the signature header
+    const bad = true;
 
-    var base64 = signature.calculate(allocator, .{
+    var result = signature.calculate(allocator, .{
         .public = true,
-        .key = null,
+        .key = MockKey,
         .request = req,
     }) catch {
         log.err("calculate failed", .{});
         return bad;
     };
-    log.debug("calc public, {s}\n", .{base64});
 
-    if (req.headers.get("signature")) |sig| {
-        log.debug("signature hdr, {s}\n", .{sig});
-    } else {
-        log.err("header signature required\n", .{});
-        return bad;
-    }
+    log.debug("calc public, {s}\n", .{result});
 
-    return false;
+    return !bad;
+}
+
+fn MockKey(proxy: []const u8) u8 {
+    log.debug("mock fetch, {s}\n", .{proxy});
+    return 0;
 }
