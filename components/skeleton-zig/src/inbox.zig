@@ -30,7 +30,7 @@ const InboxImpl = struct {
         };
         defer tree.deinit();
 
-        // capture for now (build processing later)
+        // capture for now (build processing later/next)
         ////redis.enqueue(allocator, logev) catch {
         redis.debugDetail(allocator, .{ .tree = tree, .req = req }) catch {
             log.err("save failed", .{});
@@ -38,7 +38,7 @@ const InboxImpl = struct {
         };
 
         w.headers.put("Content-Type", "application/json") catch {
-            log.err("response header, OutOfMem", .{});
+            log.err("inbox header, OutOfMem", .{});
         };
 
         status.ok(w);
@@ -60,9 +60,11 @@ fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
 
     log.debug("calc public, {s}\n", .{result});
 
+    // checks passed
     return !bad;
 }
 
+// need test cases for the 'headers' sequences
 fn MockKey(proxy: []const u8) u8 {
     log.debug("mock fetch, {s}\n", .{proxy});
     return 0;

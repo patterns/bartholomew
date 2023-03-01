@@ -18,7 +18,7 @@ const webfinger_json = @embedFile("webfinger.json");
 
 const WebfingerImpl = struct {
     fn eval(allocator: Allocator, w: *lib.HttpResponse, req: *lib.HttpRequest) void {
-        if (req.method == 1) return status.nomethod(w);
+        if (req.method != 0) return status.nomethod(w);
 
         const unknown = unknownResource(allocator, req.uri);
         if (unknown) return status.bad(w);
@@ -40,27 +40,37 @@ const WebfingerImpl = struct {
 
 // check query param 'resource'
 fn unknownResource(allocator: Allocator, ur: []const u8) bool {
-    var match = false;
+    const bad = true;
     var map = str.qryParams(allocator, ur);
     defer map.deinit();
 
-    if (map.get("resource")) |target| {
-        var re = formatResource(allocator) catch {
-            log.err("resource list OutOfMem\n", .{});
-            return false;
-        };
-        defer re.deinit();
-        const allowed = re.items;
+    var resource: []const u8 = undefined;
+    if (map.get("resource")) |val| {
+        resource = val;
+    } else {
+        log.err("param resource is required", .{});
+        return bad;
+    }
+    var grp = formatResource(allocator) catch {
+        log.err("resource list OutOfMem", .{});
+        return bad;
+    };
+    defer grp.deinit();
+    const allowed = grp.items;
+    const decoded = str.percentDecode(allocator, resource) catch {
+        log.err("decode OutOfMem", .{});
+        return bad;
+    };
+    defer allocator.free(decoded);
+    for (allowed) |known| {
+        log.debug("cmp {s} ({d}) to {s} ({d})", .{ known, known.len, decoded, decoded.len });
 
-        for (allowed) |known| {
-            if (std.mem.eql(u8, target, known)) {
-                match = true;
-                break;
-            }
+        if (std.mem.eql(u8, known, decoded)) {
+            return !bad;
         }
     }
 
-    return !match;
+    return bad;
 }
 
 // list allowed resource values

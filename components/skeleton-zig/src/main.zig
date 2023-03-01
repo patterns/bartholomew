@@ -2,7 +2,7 @@ const std = @import("std");
 const lib = @import("lib.zig");
 
 pub const std_options = struct {
-    pub const log_level = .debug;
+    pub const log_level = .warn;
 };
 pub fn main() void {
     std.debug.print("DEBUG placeholder ", .{});

@@ -86,10 +86,10 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
     }
     const key = option.key;
     const pubkey = key(proxy);
-    log.debug("key, {any}\n", .{pubkey});
+    log.debug("httpsig key, {any}\n", .{pubkey});
     //std.crypto.ecdsa.Signature.verify(buf, pubkey);
 
-    log.debug("sig input, {s}\n", .{input_string.items});
+    log.debug("httpsig input, {s}\n", .{input_string.items});
     //todo allocate if need
     return "PLACEHOLDER";
 }
@@ -106,7 +106,7 @@ fn formatInputLeader(
 ) !void {
     if (!std.mem.startsWith(u8, first, "(request-target)")) {
         // input sequence always starts with
-        log.err("sig hdr unkown format, \n", .{});
+        log.err("httpsig hdr unkown format, \n", .{});
         return error.SignatureFormat;
     }
 
