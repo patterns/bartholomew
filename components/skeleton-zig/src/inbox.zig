@@ -45,7 +45,6 @@ const InboxImpl = struct {
     }
 };
 
-////const MakeKey = fn (uri: []const u8) std.crypto.sign.sha256.PublicKey;
 fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
     const bad = true;
 
@@ -64,8 +63,8 @@ fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
     return !bad;
 }
 
-// need test cases for the 'headers' sequences
-fn MockKey(proxy: []const u8) u8 {
+// need test cases for the httpsig 'headers' sequences
+fn MockKey(proxy: []const u8) []const u8 {
     log.debug("mock fetch, {s}\n", .{proxy});
     return 0;
 }

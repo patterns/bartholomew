@@ -8,6 +8,8 @@ const log = std.log;
 //      (maybe we want to make a proxy that handles the trip to these destinations)
 //      so use a configuration setting to allow toggling.
 
+////const MakeKey = fn (uri: []const u8) std.crypto.sign.sha256.PublicKey;
+pub const MakeKey = fn (keyId: []const u8) []const u8;
 pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
     const req = option.request;
     const hdr = req.headers;
@@ -34,7 +36,7 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
     defer input_string.deinit();
     const writer = input_string.writer();
 
-    // construct input-string according to 'headers'
+    // construct input-string according to sequence 'headers'
     const first = iter.first();
     try formatInputLeader(&input_string, first, req.method, req.uri);
 
@@ -94,10 +96,6 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
     return "PLACEHOLDER";
 }
 
-// "algorithm") or
-// "created") or
-// "expires") or
-
 fn formatInputLeader(
     inpstr: *std.ArrayList(u8),
     first: []const u8,
@@ -128,7 +126,7 @@ fn fmtMethod(m: u8) []const u8 {
     }
 }
 
-const SignatureError = error{
+pub const SignatureError = error{
     SignatureKeyId,
     SignatureAbsent,
     SignatureSequence,

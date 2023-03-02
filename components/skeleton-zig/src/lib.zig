@@ -1,8 +1,8 @@
 const std = @import("std");
-const webfinger = @import("webfinger.zig");
+//const webfinger = @import("webfinger.zig");
 //const actor = @import("actor.zig");
 //const outbox = @import("outbox.zig");
-//const inbox = @import("inbox.zig");
+const inbox = @import("inbox.zig");
 const Allocator = std.mem.Allocator;
 
 //TODO think interface
@@ -43,10 +43,10 @@ fn GuestHttpStart(
     //TODO use comptime to catch problems with compiler
     //script.init(.{.attach = script.AttachOption.vanilla});
     //script.eval(&response, &request);
-    webfinger.eval(allocator, &response, &request);
+    //webfinger.eval(allocator, &response, &request);
     //actor.eval(allocator, &response, &request);
     //outbox.eval(allocator, &response, &request);
-    //inbox.eval(allocator, &response, &request);
+    inbox.eval(allocator, &response, &request);
 
     // address of memory shared to the C/host
     var re: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
@@ -267,7 +267,7 @@ pub const HttpRequest = struct {
         };
     }
     pub fn deinit(self: *Self) void {
-        self.allocator.free(self.uri);
+        if (self.uri.len != 0) self.allocator.free(self.uri);
         self.body.deinit();
         //TODO free map items
         self.headers.deinit();
