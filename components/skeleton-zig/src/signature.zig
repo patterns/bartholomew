@@ -89,11 +89,69 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
     const key = option.key;
     const pubkey = key(proxy);
     log.debug("httpsig key, {any}\n", .{pubkey});
-    //std.crypto.ecdsa.Signature.verify(buf, pubkey);
+
+    // follow std lib verify call
+    // std.crypto.ecdsa.Signature.verify(buf, pubkey);
+    // arguments: public key, hashed msg, signature
+    // so far we have: hashed msg, signature
+    // - public key needs to be fetched
 
     log.debug("httpsig input, {s}\n", .{input_string.items});
     //todo allocate if need
     return "PLACEHOLDER";
+}
+
+// see https://go.dev/src/crypto/rsa/pkcs1v15.go
+fn verifyPKCS1v15(pubk: PublicKey, hashed: []u8, sig: []u8) !bool {
+    const info = try pkcs1v15HashInfo(hashed.len);
+    log.debug("SHA256 hash length, {d}", .{info.hashLen});
+
+    const tLen = info.prefix.len + info.hashLen;
+    const k = pubk.size();
+
+    if (k < tLen + 11) return error.ErrVerification;
+
+    if (k != sig.len) return error.ErrVerification;
+
+    //const em = try encrypt(pubk, sig);
+
+    return true;
+}
+
+fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
+    // SHA256 hash creates digests of 32 bytes.
+    const hashLen: usize = 32;
+
+    if (hashLen != inLen) return error.NotHashedBySHA256;
+
+    var info = HashInfo{
+        .prefix = hashPrefixes(),
+        .hashLen = hashLen,
+    };
+
+    return info;
+}
+
+const PublicKey = struct {
+    const Self = @This();
+    modulus: []const usize,
+    exponent: []const usize,
+
+    // modulus size in bytes
+    pub fn size(self: Self) usize {
+        return self.modulus.len;
+    }
+};
+const HashInfo = struct {
+    prefix: []const u8,
+    len: usize,
+};
+
+fn hashPrefixes() []const u8 {
+    // crypto.SHA256
+    return &[_]u8{
+        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
+    };
 }
 
 fn formatInputLeader(
@@ -127,6 +185,8 @@ fn fmtMethod(m: u8) []const u8 {
 }
 
 pub const SignatureError = error{
+    ErrVerification,
+    NotHashedBySHA256,
     SignatureKeyId,
     SignatureAbsent,
     SignatureSequence,

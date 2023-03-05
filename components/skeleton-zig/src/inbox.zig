@@ -63,8 +63,8 @@ fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
     return !bad;
 }
 
-// need test cases for the httpsig 'headers' sequences
+// need test cases for the httpsig input sequence
 fn MockKey(proxy: []const u8) []const u8 {
     log.debug("mock fetch, {s}\n", .{proxy});
-    return 0;
+    return "MOCK-PUBKEY";
 }
