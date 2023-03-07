@@ -1,6 +1,8 @@
 const std = @import("std");
+const iguana = @import("modules/iguanaTLS/rsa.zig");
 const str = @import("strings.zig");
 const Allocator = std.mem.Allocator;
+const b64 = std.base64.standard.Decoder;
 const log = std.log;
 
 // TODO ?outbound http need to be enabled per destination
@@ -8,24 +10,44 @@ const log = std.log;
 //      (maybe we want to make a proxy that handles the trip to these destinations)
 //      so use a configuration setting to allow toggling.
 
-////const MakeKey = fn (uri: []const u8) std.crypto.sign.sha256.PublicKey;
-pub const MakeKey = fn (keyId: []const u8) []const u8;
-pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
+pub const ProduceKey = fn (keyId: []const u8) []const u8;
+
+const Signature = @This();
+var map: std.StringHashMap([]const u8) = undefined;
+var produce: ProduceKey = undefined;
+
+// take request and return a map of the signature fields
+pub fn init(allocator: Allocator, option: anytype) Signature {
     const req = option.request;
     const hdr = req.headers;
-
     var raw: []const u8 = undefined;
+
     if (hdr.get("signature")) |sig| {
         raw = sig;
     } else {
         log.err("httpsig signature is required", .{});
-        return error.SignatureAbsent;
+        return Signature{ .map = std.StringHashMap([]const u8).init(allocator) };
     }
-    var pairs = str.sigPairs(allocator, raw);
-    defer pairs.deinit();
+
+    return Signature{
+        .map = str.sigPairs(allocator, raw),
+    };
+}
+pub fn deinit(self: Signature) void {
+    self.map.deinit();
+}
+pub fn registerProxy(self: Signature, fetch: ProduceKey) void {
+    self.produce = fetch;
+}
+
+// pass in: inbound request headers
+// output: sha256 hash of the input-string (used in signature)
+pub fn calculate(self: Signature, allocator: Allocator, option: anytype) ![sha256_len]u8 {
+    const req = option.request;
+    const hdr = req.headers;
 
     var seq: []const u8 = undefined;
-    if (pairs.get("headers")) |place| {
+    if (self.map.get("headers")) |place| {
         seq = place;
     } else {
         log.err("httpsig sequence is required", .{});
@@ -74,72 +96,80 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]const u8 {
     // it's an hard error when any are missing.
 
     const sha = std.crypto.hash.sha2.Sha256;
-    var buf: [32]u8 = std.mem.zeroes([32]u8);
+    var buf: [sha256_len]u8 = std.mem.zeroes([sha256_len]u8);
     sha.hash(input_string.items, &buf, sha.Options{});
-    log.debug("sha, {any}\n", .{buf});
-
-    log.debug("httpsig verify flow, {any}\n", .{option.public});
-    var proxy: []const u8 = undefined;
-    if (pairs.get("keyId")) |svc| {
-        proxy = svc;
-    } else {
-        log.err("httpsig keyId is required\n", .{});
-        return error.SignatureKeyId;
-    }
-    const key = option.key;
-    const pubkey = key(proxy);
-    log.debug("httpsig key, {any}\n", .{pubkey});
-
-    // follow std lib verify call
-    // std.crypto.ecdsa.Signature.verify(buf, pubkey);
-    // arguments: public key, hashed msg, signature
-    // so far we have: hashed msg, signature
-    // - public key needs to be fetched
-
-    log.debug("httpsig input, {s}\n", .{input_string.items});
-    //todo allocate if need
-    return "PLACEHOLDER";
+    return buf;
 }
 
+// SHA256 hash creates digests of 32 bytes.
+const sha256_len: usize = 32;
+// hashed: the sha256 hash of the input-string
+// signature: the plain text decoded from header base64 field
 // see https://go.dev/src/crypto/rsa/pkcs1v15.go
-fn verifyPKCS1v15(pubk: PublicKey, hashed: []u8, sig: []u8) !bool {
+pub fn verifyPKCS1v15(self: Signature, allocator: Allocator, hashed: []u8) !bool {
     const info = try pkcs1v15HashInfo(hashed.len);
-    log.debug("SHA256 hash length, {d}", .{info.hashLen});
-
     const tLen = info.prefix.len + info.hashLen;
+
+    const pubk = try self.produceKey();
+    const plain = self.decodeB64();
     const k = pubk.size();
 
     if (k < tLen + 11) return error.ErrVerification;
 
-    if (k != sig.len) return error.ErrVerification;
+    if (k != plain.len) return error.ErrVerification;
 
-    //const em = try encrypt(pubk, sig);
+    const em = try encrypt(pubk, plain);
+    log.debug("encrypt, {any}", .{em});
+    const check = iguana.preverify(allocator, pubk.modulus, pubk.exponent, plain);
+    log.debug("preverify, {any}", .{check});
 
     return true;
 }
+fn produceKey(self: Signature) !PublicKey {
+    if (self.produce != undefined) return self.produce();
+
+    return error.ProxyNotRegistered;
+}
+fn decodeB64(self: Signature) []u8 {
+    // TODO ?what size does buffer need (testing 4-digits per)
+    if (self.map.get("signature")) |sig| {
+        var buffer: [sha256_len * 4]u8 = undefined;
+        var decoded = buffer[0..try b64.calcSizeForSlice(sig)];
+        try b64.decode(decoded, sig);
+        return decoded;
+    }
+
+    log.err("httpsig signature is required", .{});
+    return "";
+}
 
 fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
-    // SHA256 hash creates digests of 32 bytes.
-    const hashLen: usize = 32;
-
-    if (hashLen != inLen) return error.NotHashedBySHA256;
+    if (sha256_len != inLen) return error.NotHashedBySHA256;
 
     var info = HashInfo{
         .prefix = hashPrefixes(),
-        .hashLen = hashLen,
+        .hashLen = sha256_len,
     };
 
     return info;
 }
 
+fn encrypt(pubk: PublicKey, plaintext: []u8) ![]u8 {
+    //const N = bigmod.NewModulusFromBig(pubk.modulus);
+    //const m = bigmod.NewNat().SetBytes(plaintext, N);
+
+    log.debug(" {any}, {any}", pubk, plaintext);
+    return "TO-BE-CONTINUED";
+}
+
 const PublicKey = struct {
     const Self = @This();
-    modulus: []const usize,
-    exponent: []const usize,
+    N: []const usize, // modulus (big.Int)
+    E: []const usize, // exponent (int)
 
     // modulus size in bytes
     pub fn size(self: Self) usize {
-        return self.modulus.len;
+        return self.N.len;
     }
 };
 const HashInfo = struct {
@@ -187,6 +217,7 @@ fn fmtMethod(m: u8) []const u8 {
 pub const SignatureError = error{
     ErrVerification,
     NotHashedBySHA256,
+    ProxyNotRegistered,
     SignatureKeyId,
     SignatureAbsent,
     SignatureSequence,

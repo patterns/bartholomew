@@ -48,16 +48,17 @@ const InboxImpl = struct {
 fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
     const bad = true;
 
-    var result = signature.calculate(allocator, .{
-        .public = true,
-        .key = MockKey,
-        .request = req,
-    }) catch {
-        log.err("calculate failed", .{});
+    var sig = signature.init(allocator, .{ .request = req });
+    defer sig.deinit();
+
+    var hashed = sig.calculate(allocator, .{ .request = req }) catch {
+        log.err("sha256 failed", .{});
         return bad;
     };
 
-    log.debug("calc public, {s}\n", .{result});
+    sig.registerProxy(MockKey);
+    const check = sig.verifyPKCS1v15(allocator, hashed);
+    log.debug("verify, {any}", .{check});
 
     // checks passed
     return !bad;
