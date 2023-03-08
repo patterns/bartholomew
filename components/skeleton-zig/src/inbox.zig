@@ -48,16 +48,17 @@ const InboxImpl = struct {
 fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
     const bad = true;
 
-    var sig = signature.init(allocator, .{ .request = req });
-    defer sig.deinit();
+    signature.init(allocator, .{ .request = req });
+    defer signature.deinit();
 
-    var hashed = sig.calculate(allocator, .{ .request = req }) catch {
-        log.err("sha256 failed", .{});
+    const hashed = signature.calculate(allocator, .{ .request = req }) catch {
+        log.err("sha256 recreate failed", .{});
         return bad;
     };
 
-    sig.registerProxy(MockKey);
-    const check = sig.verifyPKCS1v15(allocator, hashed);
+    signature.attachFetch(MockKey);
+
+    const check = signature.verify(allocator, hashed);
     log.debug("verify, {any}", .{check});
 
     // checks passed
@@ -65,7 +66,12 @@ fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
 }
 
 // need test cases for the httpsig input sequence
-fn MockKey(proxy: []const u8) []const u8 {
+fn MockKey(allocator: Allocator, proxy: []const u8) signature.PublicKey {
+    _ = allocator;
     log.debug("mock fetch, {s}\n", .{proxy});
-    return "MOCK-PUBKEY";
+    const key = signature.PublicKey{
+        .N = std.mem.zeroes([]const u8),
+        .E = std.mem.zeroes([]const u8),
+    };
+    return key;
 }
