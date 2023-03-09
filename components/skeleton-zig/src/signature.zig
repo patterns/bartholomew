@@ -1,5 +1,6 @@
 const std = @import("std");
-const iguana = @import("modules/iguanaTLS/rsa.zig");
+//const iguana = @import("modules/iguanaTLS/rsa.zig");
+//const x509 = @import("modules/iguanaTLS/x509.zig");
 const str = @import("strings.zig");
 const Allocator = std.mem.Allocator;
 const b64 = std.base64.standard.Decoder;
@@ -232,16 +233,26 @@ pub fn fromPEM(allocator: Allocator, pem: []const u8) !PublicKey {
         return error.BufferMemByPEM;
     };
 
-    var key = std.crypto.Certificate.rsa.PublicKey.parseDer(decoded) catch {
-        log.err("pem pubkey parse", .{});
-        return error.BufferMemByPEM;
-    };
-    log.debug("E:{d}, N: {any}", .{ key.exponent, key.modulus });
+    // does the DER slice begin with 0x30? (sequence_tag); 48 in decimal
+    const begin = decoded[0];
+    log.debug("der begins, {d}", .{begin});
+    if (begin != 0x30) return error.UnknownX509KeySpec;
+    const length = decoded[1];
+    // can be 1/2/3 bytes to represent length; larger than 127 will be multi byte
+    if (length <= 0x7F) {
+        log.debug("der length, single byte {d}", .{length});
+    } else if (length == 0x81) {
+        log.debug("der length, double byte {d}", .{length});
+    } else if (length == 0x82) {
+        log.debug("der length, triple byte {d}", .{length});
+    }
 
     // TODO are the bytes copied (free bufdco?)
     return PublicKey{
-        .N = key.modulus,
-        .E = key.exponent,
+        //.N = std.mem.zeroes([]const u8),
+        //.E = std.mem.zeroes([]const u8),
+        .N = decoded[0..1],
+        .E = decoded[1..2],
     };
 }
 
@@ -323,6 +334,7 @@ pub const SignatureError = error{
     FetchNotDefined,
     UnknownPEM,
     BufferMemByPEM,
+    UnknownX509KeySpec,
     SignatureKeyId,
     SignatureAbsent,
     SignatureSequence,
