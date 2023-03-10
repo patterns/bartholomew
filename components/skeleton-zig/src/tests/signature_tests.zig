@@ -50,13 +50,17 @@ test "verify requires signature" {
 //const pubrsa_pem = @embedFile("pubrsa.pem");
 fn publicKeyHelloRSA(allocator: Allocator, proxy: []const u8) signature.PublicKey {
     _ = proxy;
-    //const key = signature.fromPEM(allocator, pubrsa_pem) catch {
-    const key = signature.fromPEM(allocator, pubPEM) catch {
-        debug.panic("PEM decode failed", .{});
+
+    const key = signature.fromPEM(allocator, pubPEM) catch |err| {
+        debug.panic("PEM decode failed, {!}", .{err});
     };
 
-    debug.print("N E: {any}, {any}", .{ key.N, key.E });
-    return key;
+    debug.print("N E: {any}, {any}; dbg {s}", .{ key.N, key.E, key.debug });
+    defer allocator.free(key.debug);
+    return signature.PublicKey{
+        .N = key.N,
+        .E = key.E,
+    };
 }
 fn publicKeyEd25519(proxy: []const u8) []const u8 {
     _ = proxy;

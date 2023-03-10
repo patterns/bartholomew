@@ -1,8 +1,8 @@
 const std = @import("std");
-//const iguana = @import("modules/iguanaTLS/rsa.zig");
-//const x509 = @import("modules/iguanaTLS/x509.zig");
+
 const str = @import("strings.zig");
-const Allocator = std.mem.Allocator;
+const mem = std.mem;
+const Allocator = mem.Allocator;
 const b64 = std.base64.standard.Decoder;
 const log = std.log;
 
@@ -30,12 +30,12 @@ pub fn init(allocator: Allocator, option: anytype) void {
 
     if (hdr.get("signature")) |sig| {
         raw = sig;
-    } else {
-        log.err("httpsig signature is required", .{});
-        impl.map = std.StringHashMap([]const u8).init(allocator);
+        impl.map = str.sigPairs(allocator, raw);
+        return;
     }
 
-    impl.map = str.sigPairs(allocator, raw);
+    log.err("httpsig signature is required", .{});
+    impl.map = std.StringHashMap([]const u8).init(allocator);
 }
 pub fn deinit() void {
     impl.map.deinit();
@@ -93,7 +93,7 @@ const SignedByRSAImpl = struct {
             log.err("httpsig sequence is required", .{});
             return error.SignatureSequence;
         }
-        var iter = std.mem.split(u8, seq, " ");
+        var iter = mem.split(u8, seq, " ");
         var input_string = std.ArrayList(u8).init(allocator);
         defer input_string.deinit();
         const writer = input_string.writer();
@@ -175,7 +175,7 @@ const SignedByRSAImpl = struct {
                 log.err("Perhaps SHA256 wasn't the hash used by signer, sz: {d}", .{sz});
                 return error.SignatureDecode;
             }
-            var buffer: [sha256_len]u8 = std.mem.zeroes([sha256_len]u8);
+            var buffer: [sha256_len]u8 = mem.zeroes([sha256_len]u8);
             var decoded = buffer[0..sz];
             try b64.decode(decoded, sig);
 
@@ -187,72 +187,114 @@ const SignedByRSAImpl = struct {
     }
 };
 
-pub fn fromPEM(allocator: Allocator, pem: []const u8) !PublicKey {
+// Open PEM envelope to find DER of SubjectPublicKeyInfo
+pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
+    N: []const u8,
+    E: []const u8,
+    debug: []const u8,
+} {
+    // sanity check as this is not for every case of PEM
     var start: usize = undefined;
     var stop: usize = undefined;
-    if (std.mem.indexOf(u8, pem, "-----BEGIN PUBLIC KEY-----")) |index| {
+    if (mem.indexOf(u8, pem, "-----BEGIN PUBLIC KEY")) |index| {
         start = index;
+    } else {
+        return error.UnknownPEM;
     }
-    if (std.mem.indexOf(u8, pem, "-----END PUBLIC KEY-----")) |index| {
+    if (mem.indexOf(u8, pem, "-----END PUBLIC KEY")) |index| {
         stop = index;
+    } else {
+        return error.UnknownPEM;
     }
-    log.debug("pem hd/footer sanity checks, ", .{});
-    if (start == undefined or stop == undefined) return error.UnknownPEM;
-    //const offset = start + 26;
-    //const mid = pem[offset..stop];
-    //var sz = std.mem.replacementSize(u8, mid, "\n", "");
-    //var buffer = try allocator.alloc(u8, sz);
-    //defer allocator.free(buffer);
-    //var count = std.mem.replace(u8, pem, "\n", "", buffer);
-    //log.debug("pem newlines, {d}", .{ count });
+
     var buffer = std.ArrayList(u8).init(allocator);
     defer buffer.deinit();
     var clean: []const u8 = undefined;
-    var iter = std.mem.tokenize(u8, pem, "\n");
+    var iter = mem.tokenize(u8, pem, "\n");
     while (iter.next()) |line| {
-        clean = std.mem.trim(u8, line, "\n");
-        if (str.eq("-----END PUBLIC KEY-----", clean)) break;
-        if (str.eq("-----BEGIN PUBLIC KEY-----", clean)) continue;
-        buffer.appendSlice(clean) catch {
-            log.err("pem read buffer OutOfMem", .{});
-            return error.BufferMemByPEM;
-        };
+        clean = mem.trim(u8, line, "\n");
+        if (mem.startsWith(u8, clean, "-----END PUBLIC KEY")) break;
+        if (mem.startsWith(u8, clean, "-----BEGIN PUBLIC KEY")) continue;
+        try buffer.appendSlice(clean);
     }
 
-    var sz = b64.calcSizeForSlice(buffer.items) catch {
-        log.err("pem size calc", .{});
-        return error.BufferMemByPEM;
-    };
-    var bufdco = allocator.alloc(u8, sz) catch {
-        log.err("pem alloc", .{});
-        return error.BufferMemByPEM;
-    };
+    var sz = try b64.calcSizeForSlice(buffer.items);
+    var bufdco = try allocator.alloc(u8, sz);
+    //defer allocator.free(bufdco);
     var decoded = bufdco[0..sz];
-    b64.decode(decoded, buffer.items) catch {
-        log.err("pem base64 decode", .{});
-        return error.BufferMemByPEM;
-    };
+    try b64.decode(decoded, buffer.items);
 
     // does the DER slice begin with 0x30? (sequence_tag); 48 in decimal
     const begin = decoded[0];
-    log.debug("der begins, {d}", .{begin});
     if (begin != 0x30) return error.UnknownX509KeySpec;
-    const length = decoded[1];
+
+    const hint = decoded[1];
+    var first_index: usize = 0;
+    var length: usize = 0;
     // can be 1/2/3 bytes to represent length; larger than 127 will be multi byte
-    if (length <= 0x7F) {
-        log.debug("der length, single byte {d}", .{length});
-    } else if (length == 0x81) {
+    if (hint <= 0x7F) {
+        first_index = 2;
+        length = hint;
+        log.debug("der length, single byte {d}", .{hint});
+    } else if (hint == 0x81) {
+        first_index = 3;
+        length = decoded[2];
         log.debug("der length, double byte {d}", .{length});
-    } else if (length == 0x82) {
+    } else if (hint == 0x82) {
+        first_index = 4;
+        const hi_bits: usize = decoded[2];
+        const lo_bits: usize = decoded[3];
+        const shifted = @shlExact(hi_bits, @bitSizeOf(u8));
+        length = shifted | lo_bits;
         log.debug("der length, triple byte {d}", .{length});
+    } else {
+        log.err("der length exceeded", .{});
+        std.debug.assert(unreachable);
+    }
+
+    // SPKI is after the length encoding
+    const last_index = first_index + length;
+    const spki = decoded[first_index..last_index];
+
+    // at algorithm-identifier (OID)
+    //const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
+    var check: []u8 = undefined;
+    var bit_str: []u8 = undefined;
+    var data: []u8 = undefined;
+
+    var key_tuple: struct { exponent: []const u8, modulus: []const u8 } = undefined;
+    const tag = spki[0];
+    if (tag == 0x30 and spki[1] == 0x0D) {
+        // tag means sequence and 0x0D means field is 13 bytes
+        //if (mem.eql(u8, &rsa_alg, spki[2..14])) {
+        check = spki[2..14];
+        bit_str = spki[15..];
+        // should begin 0x03 and length
+        if (bit_str[0] == 0x03 and bit_str[1] == 0x82) {
+            const hi_bits: usize = bit_str[2];
+            const lo_bits: usize = bit_str[3];
+            const shifted: usize = @shlExact(hi_bits, @bitSizeOf(u8));
+            length = shifted | lo_bits;
+            //const stop_index = 5 + length;
+            //data = bit_str[5..stop_index];
+            data = bit_str[5..];
+            const tmp = try std.crypto.Certificate.rsa.PublicKey.parseDer(data);
+            key_tuple = .{ .exponent = tmp.exponent, .modulus = tmp.modulus };
+        }
+        //}
     }
 
     // TODO are the bytes copied (free bufdco?)
-    return PublicKey{
-        //.N = std.mem.zeroes([]const u8),
-        //.E = std.mem.zeroes([]const u8),
+    return .{
+        //.N = mem.zeroes([]const u8),
+        //.E = mem.zeroes([]const u8),
         .N = decoded[0..1],
         .E = decoded[1..2],
+        .debug = try std.fmt.allocPrint(allocator, "dat:{any}, e:{any}, N:{s}", .{
+            std.fmt.fmtSliceHexUpper(data[0..3]),
+            key_tuple.exponent,
+            std.fmt.fmtSliceHexUpper(key_tuple.modulus),
+        }),
     };
 }
 
@@ -304,7 +346,7 @@ fn formatInputLeader(
     method: u8,
     uri: []const u8,
 ) !void {
-    if (!std.mem.startsWith(u8, first, "(request-target)")) {
+    if (!mem.startsWith(u8, first, "(request-target)")) {
         // input sequence always starts with
         log.err("httpsig hdr unkown format, \n", .{});
         return error.SignatureFormat;
