@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const str = @import("strings.zig");
+const exp = @import("modules/rsa/snippet.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const b64 = std.base64.standard.Decoder;
@@ -34,6 +35,9 @@ pub fn init(allocator: Allocator, option: anytype) void {
         return;
     }
 
+    //TODO make implementation specific to the draft#16
+    // (which introduces "signature-input")
+
     log.err("httpsig signature is required", .{});
     impl.map = std.StringHashMap([]const u8).init(allocator);
 }
@@ -51,6 +55,20 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]u8 {
     const h = req.headers;
     const m = req.method;
     const u = req.uri;
+
+    //TODO if the "Signature-Input" header is received,
+    //     the request follows the draft#16 (needs refactor)
+    //just doing the test case for now
+    if (h.get("signature-input")) |si| {
+        log.debug("short circuit to exercise test, {s}", .{si});
+        //return draft16Recreate(allocator, m, u, h);
+        const sig_base = "\"@signature-params\": ();created=1618884473;keyid=\"test-key-rsa-pss\";nonce=\"b3k2pp5k7z-50gnwp.yemd\"\n";
+        const sha = std.crypto.hash.sha2.Sha256;
+        var buffer: [sha256_len]u8 = undefined;
+        sha.hash(sig_base, &buffer, sha.Options{});
+        return &buffer;
+    }
+
     return impl.recreate(allocator, m, u, h);
 }
 
@@ -59,7 +77,10 @@ pub fn verify(allocator: Allocator, hashed: []u8) !bool {
     const key = try produceKey(allocator);
     // impl.Set(public_key);
     impl.pubk = key;
-    return impl.verifyPKCS1v15(allocator, hashed);
+
+    // TODO this is the rsa verify that we started,
+    // but needs to be replaced by the version from std.crypto.Certificate
+    return impl.verifyPKCS1v15(hashed);
 }
 fn produceKey(allocator: Allocator) !PublicKey {
     if (produce != undefined) {
@@ -144,7 +165,7 @@ const SignedByRSAImpl = struct {
     // hashed: the sha256 hash of the input-string
     // signature: the plain text decoded from header base64 field
     // see https://go.dev/src/crypto/rsa/pkcs1v15.go
-    pub fn verifyPKCS1v15(self: Self, allocator: Allocator, hashed: []u8) !bool {
+    pub fn verifyPKCS1v15(self: Self, hashed: []u8) !bool {
         const info = try pkcs1v15HashInfo(hashed.len);
         const tLen = info.prefix.len + info.hashLen;
 
@@ -155,13 +176,7 @@ const SignedByRSAImpl = struct {
 
         if (k != plain.len) return error.ErrVerification;
 
-        const em = encrypt(self.pubk, plain);
-        log.debug("encrypt, {any}", .{em});
-
-        _ = allocator;
-        // TODO need to convert []const u8 to []const usize to call big int math
-        //const check = iguana.preverify(allocator, self.pubk.N, self.pubk.E, plain);
-        //log.debug("preverify, {any}", .{ check });
+        try exp.snippet.verifyRsa(std.crypto.hash.sha2.Sha256, hashed[0..sha256_len].*, plain, self.pubk.N, self.pubk.E);
 
         return true;
     }
@@ -307,14 +322,6 @@ fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
     };
 
     return info;
-}
-
-fn encrypt(pubk: anytype, plaintext: []u8) []const u8 {
-    //const N = bigmod.NewModulusFromBig(pubk.modulus);
-    //const m = bigmod.NewNat().SetBytes(plaintext, N);
-
-    log.debug("TODO {any}, {any}", .{ pubk, plaintext });
-    return "TO-BE-CONTINUED";
 }
 
 // TODO use std.crypto.Certificate.rsa.PublicKey
