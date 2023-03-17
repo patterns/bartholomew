@@ -19,11 +19,7 @@ pub fn build(b: *bld.Builder) !void {
     exe.install();
 
     // Creates a step for unit testing.
-    const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/tests.zig" },
-        .target = to,
-        .optimize = oo,
-    });
+    const main_tests = b.addTest(optTesting(.{.target=to, .optimize=oo}));
 
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build test`
@@ -34,9 +30,18 @@ pub fn build(b: *bld.Builder) !void {
 
 fn optMain(option: anytype) bld.ExecutableOptions {
     return bld.ExecutableOptions {
-        .name = "webcomponent",
+        .name = "spincomponent",
         .root_source_file = bld.FileSource { .path = "src/main.zig"},
         .target = option.target,
         .optimize = option.optimize,
     };
 }
+
+fn optTesting(option: anytype) bld.TestOptions {
+    return bld.TestOptions {
+        .root_source_file = bld.FileSource { .path = "src/tests.zig"},
+        .target = option.target,
+        .optimize = option.optimize,
+    };
+}
+

@@ -22,7 +22,11 @@ fn GuestHttpStart(
     arg_bodyAddr: WasiAddr,
     arg_bodyLen: i32,
 ) callconv(.C) WasiAddr {
-    const allocator = std.heap.wasm_allocator;
+    //const allocator = std.heap.wasm_allocator;
+    var arena = std.heap.ArenaAllocator.init(std.heap.wasm_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     var request = HttpRequest.init(
         allocator,
         arg_method,
@@ -40,7 +44,7 @@ fn GuestHttpStart(
     var response = HttpResponse.init(allocator);
     defer response.deinit();
 
-    //TODO use comptime to catch problems with compiler
+    //TODO use comptime to have compiler catch problems
     //script.init(.{.attach = script.AttachOption.vanilla});
     //script.eval(&response, &request);
     //webfinger.eval(allocator, &response, &request);

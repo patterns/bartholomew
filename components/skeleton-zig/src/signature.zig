@@ -29,15 +29,14 @@ pub fn init(allocator: Allocator, option: anytype) void {
     const hdr = req.headers;
     var raw: []const u8 = undefined;
 
+    //TODO make implementation specific to the draft#16
+    // (which introduces "signature-input")
+
     if (hdr.get("signature")) |sig| {
         raw = sig;
         impl.map = str.sigPairs(allocator, raw);
         return;
     }
-
-    //TODO make implementation specific to the draft#16
-    // (which introduces "signature-input")
-
     log.err("httpsig signature is required", .{});
     impl.map = std.StringHashMap([]const u8).init(allocator);
 }
@@ -55,19 +54,6 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]u8 {
     const h = req.headers;
     const m = req.method;
     const u = req.uri;
-
-    //TODO if the "Signature-Input" header is received,
-    //     the request follows the draft#16 (needs refactor)
-    //just doing the test case for now
-    if (h.get("signature-input")) |si| {
-        log.debug("short circuit to exercise test, {s}", .{si});
-        //return draft16Recreate(allocator, m, u, h);
-        const sig_base = "\"@signature-params\": ();created=1618884473;keyid=\"test-key-rsa-pss\";nonce=\"b3k2pp5k7z-50gnwp.yemd\"\n";
-        const sha = std.crypto.hash.sha2.Sha256;
-        var buffer: [sha256_len]u8 = undefined;
-        sha.hash(sig_base, &buffer, sha.Options{});
-        return &buffer;
-    }
 
     return impl.recreate(allocator, m, u, h);
 }
@@ -176,7 +162,10 @@ const SignedByRSAImpl = struct {
 
         if (k != plain.len) return error.ErrVerification;
 
+        // DEBUG DEBUG
         try exp.snippet.verifyRsa(std.crypto.hash.sha2.Sha256, hashed[0..sha256_len].*, plain, self.pubk.N, self.pubk.E);
+
+        log.debug("did it REALLY work finally?!", .{});
 
         return true;
     }
@@ -206,7 +195,6 @@ const SignedByRSAImpl = struct {
 pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
     N: []const u8,
     E: []const u8,
-    debug: []const u8,
 } {
     // sanity check as this is not for every case of PEM
     var start: usize = undefined;
@@ -277,7 +265,8 @@ pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
     var bit_str: []u8 = undefined;
     var data: []u8 = undefined;
 
-    var key_tuple: struct { exponent: []const u8, modulus: []const u8 } = undefined;
+    //TODO debug more safety on N/E
+    var key_tuple: struct { E: []const u8, N: []const u8 } = undefined;
     const tag = spki[0];
     if (tag == 0x30 and spki[1] == 0x0D) {
         // tag means sequence and 0x0D means field is 13 bytes
@@ -292,25 +281,17 @@ pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
             length = shifted | lo_bits;
             //const stop_index = 5 + length;
             //data = bit_str[5..stop_index];
+
             data = bit_str[5..];
             const tmp = try std.crypto.Certificate.rsa.PublicKey.parseDer(data);
-            key_tuple = .{ .exponent = tmp.exponent, .modulus = tmp.modulus };
+            key_tuple = .{ .E = tmp.exponent, .N = tmp.modulus };
         }
         //}
     }
 
-    // TODO are the bytes copied (free bufdco?)
-    return .{
-        //.N = mem.zeroes([]const u8),
-        //.E = mem.zeroes([]const u8),
-        .N = decoded[0..1],
-        .E = decoded[1..2],
-        .debug = try std.fmt.allocPrint(allocator, "dat:{any}, e:{any}, N:{s}", .{
-            std.fmt.fmtSliceHexUpper(data[0..3]),
-            key_tuple.exponent,
-            std.fmt.fmtSliceHexUpper(key_tuple.modulus),
-        }),
-    };
+    log.debug("pub N: {any}, E: {any}", .{ key_tuple.N, key_tuple.E });
+
+    return .{ .N = key_tuple.N, .E = key_tuple.E };
 }
 
 fn pkcs1v15HashInfo(inLen: usize) !HashInfo {

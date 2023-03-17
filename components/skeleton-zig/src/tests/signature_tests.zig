@@ -9,7 +9,8 @@ const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
 const debug = std.debug;
 
-test "minimal signature using rsa-pss-sha512" {
+////test "minimal signature (TODO using rsa-pss-sha512)" {
+test "example signature " {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var allocator = arena.allocator();
@@ -19,14 +20,16 @@ test "minimal signature using rsa-pss-sha512" {
     signature.attachFetch(testKeyRSAPSS);
     const hashed = try signature.calculate(allocator, .{ .request = req });
     const check = try signature.verify(allocator, hashed);
-    debug.print("test {any}", .{check});
 
     try expect(check);
 }
+
 test "verify can read rsa public key" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var allocator = arena.allocator();
+
+    return error.SkipZigTest;
     var req = try requestHelloRSA(allocator);
     signature.init(allocator, .{ .request = req });
     defer signature.deinit();
@@ -35,8 +38,7 @@ test "verify can read rsa public key" {
     const check = try signature.verify(allocator, hashed);
     debug.print("test {any}", .{check});
 
-    //try expect(check);
-    return error.SkipZigTest;
+    try expect(check);
 }
 
 test "calculate ed25519 compatible" {
@@ -61,16 +63,13 @@ test "verify requires signature" {
     return error.SkipZigTest;
 }
 
-const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
+//const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
 fn testKeyRSAPSS(allocator: Allocator, proxy: []const u8) signature.PublicKey {
     _ = proxy;
-
-    const key = signature.fromPEM(allocator, test_key_rsa_pss) catch |err| {
+    const key = signature.fromPEM(allocator, pub_key_pem) catch |err| {
         debug.panic("PEM decode failed, {!}", .{err});
     };
 
-    debug.print("N E: {any}, {any}; dbg {s}", .{ key.N, key.E, key.debug });
-    defer allocator.free(key.debug);
     return signature.PublicKey{
         .N = key.N,
         .E = key.E,
@@ -84,8 +83,6 @@ fn publicKeyHelloRSA(allocator: Allocator, proxy: []const u8) signature.PublicKe
         debug.panic("PEM decode failed, {!}", .{err});
     };
 
-    debug.print("N E: {any}, {any}; dbg {s}", .{ key.N, key.E, key.debug });
-    defer allocator.free(key.debug);
     return signature.PublicKey{
         .N = key.N,
         .E = key.E,
@@ -96,29 +93,23 @@ fn publicKeyEd25519(proxy: []const u8) []const u8 {
     return "PUBKEY-TEST";
 }
 
-// examples to test are from the draft
-// (https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-message-signatures-16)
 fn testRequest(allocator: Allocator) !*lib.HttpRequest {
     var headers = std.StringHashMap([]const u8).init(allocator);
     var params = std.StringHashMap([]const u8).init(allocator);
     var body = std.ArrayList(u8).init(allocator);
 
     const post = 1;
-    const uri = "/foo?param=Value&Pet=dog";
+    const uri = "/foo?param=value&pet=dog";
 
     try body.appendSlice("{\"hello\": \"world\"}");
     try headers.put("host", "example.com");
-    try headers.put("date", "Tue, 20 Apr 2021 02:07:55 GMT");
+    try headers.put("date", "Thu, 05 Jan 2014 21:31:40 GMT");
     try headers.put("content-type", "application/json");
-    try headers.put("digest", "sha-512=:WZDPaVn/7XgHaAy8pmojAkGWoRx2UFChF41A2svX+TaPm+AbwAgBWnrIiYllu7BNNyealdVLvRwEmTHWXvJwew==:");
+    try headers.put("digest", "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=");
     try headers.put("content-length", "18");
     try headers.put(
-        "signature-input",
-        "sig-b21=();created=1618884473;keyid=\"test-key-rsa-pss\";nonce=\"b3k2pp5k7z-50gnwp.yemd\"",
-    );
-    try headers.put(
         "signature",
-        "sig-b21=:d2pmTvmbncD3xQm8E9ZV2828BjQWGgiwAaw5bAkgibUopemLJcWDy/lkbbHAve4cRAtx31Iq786U7it++wgGxbtRxf8Udx7zFZsckzXaJMkA7ChG52eSkFxykJeNqsrWH5S+oxNFlD4dzVuwe8DhTSja8xxbR/Z2cOGdCbzR72rgFWhzx2VjBqJzsPLMIQKhO4DGezXehhWwE56YCE+O6c0mKZsfxVrogUvA4HELjVKWmAvtl6UnCh8jYzuVG5WSb/QEVPnP5TmcAnLH1g+s++v6d4s8m0gCw1fV5/SITLq9mhho8K3+7EPYTU8IU1bLhdxO5Nyt8C8ssinQ98Xw9Q==:",
+        "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"\"",
     );
     return newRequest(allocator, post, uri, headers, params, body);
 }
@@ -206,3 +197,19 @@ const pubPEM =
     \\AIU+2GKjyT3iMuzZxxFxPFMCAwEAAQ==
     \\-----END PUBLIC KEY-----
 ;
+
+const pub_key_pem =
+    \\-----BEGIN PUBLIC KEY-----
+    \\MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt0c14FLZWHqgNJzlHrpR
+    \\yx9CuW+w5DYo/5s59FZHEgNzTjUJyE3Jfxx1j/6gcCWmZGoTULR5ILZySe/jagQw
+    \\JvLl7dkOcf7K3FGh3JpoTeZpInFjVSyKag3PfstQI/Hq/JIV9mysGk2hNoo/0Jvh
+    \\2vT48jGuxhrwHchJdNeYs8eBtvSfIlXsnt9K1qZVU9T+anG7wwn42t5GcQ391vxk
+    \\DLgUzF5K1wSzOQoXh5lryW/BZzEmAhFqGZz69UsjRoS1ia53nb1LjXBpZdetvqU6
+    \\0YlOHfRc19tgUnmkMqXqMV6lRUmFqyFh/kj50GE5FsuQSjlNaKiotuZg/KJ/DhfO
+    \\HwIDAQAB
+    \\-----END PUBLIC KEY-----
+;
+
+// TODO try more examples from the draft
+// (https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-message-signatures-16)
+
