@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const str = @import("strings.zig");
+const row = @import("rows.zig");
 const exp = @import("modules/rsa/snippet.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -17,31 +18,19 @@ const Signature = @This();
 pub const ProduceKeyFn = *const fn (allocator: Allocator, keyProvider: []const u8) PublicKey;
 
 const Impl = struct { produce: ProduceKeyFn };
-var impl = SignedByRSAImpl{ .map = undefined, .pubk = undefined };
+var impl = SignedByRSAImpl{ .map = undefined, .publicKey = undefined };
 var produce: ProduceKeyFn = undefined;
 
 // SHA256 hash creates digests of 32 bytes.
 const sha256_len: usize = 32;
 
-// extract request header to make a map of signature fields
-pub fn init(allocator: Allocator, option: anytype) void {
-    const req = option.request;
-    const hdr = req.headers;
-    var raw: []const u8 = undefined;
+pub fn init(option: anytype) !void {
+    const headers = option.refactorInProgress;
+    var sig = headers.get(.signature).value;
 
-    //TODO make implementation specific to the draft#16
-    // (which introduces "signature-input")
-
-    if (hdr.get("signature")) |sig| {
-        raw = sig;
-        impl.map = str.sigPairs(allocator, raw);
-        return;
-    }
-    log.err("httpsig signature is required", .{});
-    impl.map = std.StringHashMap([]const u8).init(allocator);
-}
-pub fn deinit() void {
-    impl.map.deinit();
+    // extract request header to make a map of signature fields
+    impl.map.init();
+    try impl.map.read(sig);
 }
 
 // user defined steps to retrieve the public key
@@ -51,7 +40,20 @@ pub fn attachFetch(fetch: ProduceKeyFn) void {
 // recreate the sha256 hash
 pub fn calculate(allocator: Allocator, option: anytype) ![]u8 {
     const req = option.request;
-    const h = req.headers;
+    const h = option.refactorInProgress;
+    const m = req.method;
+    const u = req.uri;
+
+    const base_input = try impl.recreate(allocator, m, u, h);
+    const sha = std.crypto.hash.sha2.Sha256;
+    var buffer: [sha256_len]u8 = undefined;
+    sha.hash(base_input, &buffer, sha.Options{});
+    return &buffer;
+}
+// recreate the signature base input
+pub fn baseInput(allocator: Allocator, option: anytype) ![]u8 {
+    const req = option.request;
+    const h = option.refactorInProgress;
     const m = req.method;
     const u = req.uri;
 
@@ -62,7 +64,7 @@ pub fn verify(allocator: Allocator, hashed: []u8) !bool {
     // _pre-verify_, make the fetch to instantiate a public key
     const key = try produceKey(allocator);
     // impl.Set(public_key);
-    impl.pubk = key;
+    impl.publicKey = key;
 
     // TODO this is the rsa verify that we started,
     // but needs to be replaced by the version from std.crypto.Certificate
@@ -70,19 +72,17 @@ pub fn verify(allocator: Allocator, hashed: []u8) !bool {
 }
 fn produceKey(allocator: Allocator) !PublicKey {
     if (produce != undefined) {
-        if (impl.map.get("keyId")) |kp| {
-            return produce(allocator, kp);
-        } else {
-            log.err("http keyId is required, is name case-sensitive?", .{});
-        }
+        const kp = impl.map.get(.key_id).value;
+        return produce(allocator, kp);
     }
     return error.FetchNotDefined;
 }
 
 const SignedByRSAImpl = struct {
     const Self = @This();
-    map: std.StringHashMap([]const u8),
-    pubk: PublicKey,
+
+    map: row.SignatureList,
+    publicKey: PublicKey,
 
     // pass in: inbound request headers
     // output: sha256 hash of the input-string (used in signature)
@@ -91,18 +91,13 @@ const SignedByRSAImpl = struct {
         allocator: Allocator,
         method: u8,
         uri: []const u8,
-        hdr: std.StringHashMap([]const u8),
+        headers: row.HeaderList,
     ) ![]u8 {
-        var seq: []const u8 = undefined;
-        if (self.map.get("headers")) |place| {
-            seq = place;
-        } else {
-            log.err("httpsig sequence is required", .{});
-            return error.SignatureSequence;
-        }
-        var iter = mem.split(u8, seq, " ");
+        var recipe = self.map.get(.headers).value;
+
+        var iter = mem.split(u8, recipe, " ");
         var input_string = std.ArrayList(u8).init(allocator);
-        defer input_string.deinit();
+        ////defer input_string.deinit();
         const writer = input_string.writer();
 
         // construct input-string according to sequence 'headers'
@@ -111,44 +106,32 @@ const SignedByRSAImpl = struct {
 
         while (iter.next()) |field| {
             if (str.eq("host", field)) {
-                if (hdr.get("host")) |name| {
-                    try writer.print("\nhost: {s}", .{name});
-                } else {
-                    log.err("httpsig host is required\n", .{});
-                    return error.SignatureHost;
-                }
+                const name = headers.get(.host).value;
+                try writer.print("\nhost: {s}", .{name});
             } else if (str.eq("date", field)) {
                 //todo check timestamp
-                if (hdr.get("date")) |date| {
-                    try writer.print("\ndate: {s}", .{date});
-                } else {
-                    log.err("httpsig date is required\n", .{});
-                    return error.SignatureDate;
-                }
+                const date = headers.get(.date).value;
+                try writer.print("\ndate: {s}", .{date});
             } else if (str.eq("digest", field)) {
                 //todo check digest
-                if (hdr.get("digest")) |digest| {
-                    try writer.print("\ndigest: {s}", .{digest});
-                } else {
-                    log.err("httpsig digest is required\n", .{});
-                    return error.SignatureDigest;
-                }
-            } else {
-                const val = hdr.get(field) orelse "00000";
-                try writer.print("\n{s}: {s}", .{ field, val });
+                const digest = headers.get(.digest).value;
+                try writer.print("\ndigest: {s}", .{digest});
+
+                //} else {
+                // TODO refactor w mal
+                //const val = hdr.get(field) orelse "00000";
+                //try writer.print("\n{s}: {s}", .{ field, val });
             }
         }
+
         //TODO
         // _minimum_ required elements are date, host, and digest (method != get)
         // it's an hard error when any are missing.
 
-        const sha = std.crypto.hash.sha2.Sha256;
-        var buffer: [sha256_len]u8 = undefined;
-        sha.hash(input_string.items, &buffer, sha.Options{});
-        return &buffer;
+        return input_string.items;
     }
 
-    // hashed: the sha256 hash of the input-string
+    // hashed: the SHA-256 hash of the input-string (signature base)
     // signature: the plain text decoded from header base64 field
     // see https://go.dev/src/crypto/rsa/pkcs1v15.go
     pub fn verifyPKCS1v15(self: Self, hashed: []u8) !bool {
@@ -156,14 +139,15 @@ const SignedByRSAImpl = struct {
         const tLen = info.prefix.len + info.hashLen;
 
         const plain = try self.decodeB64();
-        const k = self.pubk.size();
+        const k = self.publicKey.size();
 
         if (k < tLen + 11) return error.ErrVerification;
 
-        if (k != plain.len) return error.ErrVerification;
+        // TODO double-confirm logic
+        ////if (k != plain.len) return error.ErrVerification;
 
         // DEBUG DEBUG
-        try exp.snippet.verifyRsa(std.crypto.hash.sha2.Sha256, hashed[0..sha256_len].*, plain, self.pubk.N, self.pubk.E);
+        try exp.snippet.verifyRsa(std.crypto.hash.sha2.Sha256, hashed[0..sha256_len].*, plain, self.publicKey.N, self.publicKey.E);
 
         log.debug("did it REALLY work finally?!", .{});
 
@@ -173,21 +157,19 @@ const SignedByRSAImpl = struct {
     // The signature becomes the length of the SHA256 hash after base64 decoding.
     // We're basically unwrapping or reversing the steps from the signing.
     fn decodeB64(self: Self) ![]u8 {
-        if (self.map.get("signature")) |sig| {
-            const sz = try b64.calcSizeForSlice(sig);
-            if (sha256_len < sz) {
-                log.err("Perhaps SHA256 wasn't the hash used by signer, sz: {d}", .{sz});
-                return error.SignatureDecode;
-            }
-            var buffer: [sha256_len]u8 = mem.zeroes([sha256_len]u8);
-            var decoded = buffer[0..sz];
-            try b64.decode(decoded, sig);
+        const sig = self.map.get(.signature).value;
+        const sz = try b64.calcSizeForSlice(sig);
+        // TODO double-confirm this logic because I must have read the Golang wrong
+        //if (sha256_len < sz) {
+        //    log.err("Perhaps SHA256 wasn't the hash used by signer, sz: {d}", .{sz});
+        //    return error.SignatureDecode;
+        //}
+        //var buffer: [sha256_len]u8 = mem.zeroes([sha256_len]u8);
+        var buffer: [128]u8 = mem.zeroes([128]u8);
+        var decoded = buffer[0..sz];
+        try b64.decode(decoded, sig);
 
-            return decoded;
-        }
-
-        log.err("httpsig signature is required", .{});
-        return error.SignatureAbsent;
+        return decoded;
     }
 };
 

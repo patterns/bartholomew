@@ -3,6 +3,7 @@ const std = @import("std");
 //const actor = @import("actor.zig");
 //const outbox = @import("outbox.zig");
 const inbox = @import("inbox.zig");
+const row = @import("rows.zig");
 const Allocator = std.mem.Allocator;
 
 //TODO think interface
@@ -152,13 +153,13 @@ const xdata = struct {
 
 // map conversion from C arrays
 fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
-    var rows = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
+    var record = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
     const count = @intCast(usize, len);
 
     var map = std.StringHashMap([]const u8).init(al);
     var i: usize = 0;
     while (i < count) : (i +%= 1) {
-        var kv = rows[i];
+        var kv = record[i];
 
         var key = al.dupe(u8, kv.f0.ptr[0..kv.f0.len]) catch {
             std.debug.panic("FAIL map key dupe ", .{});
@@ -175,7 +176,7 @@ fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
         CanonicalAbiFree(@ptrCast(?*anyopaque, kv.f1.ptr), kv.f1.len, 1);
     }
     // free the old array
-    CanonicalAbiFree(@ptrCast(?*anyopaque, rows), count *% 16, 4);
+    CanonicalAbiFree(@ptrCast(?*anyopaque, record), count *% 16, 4);
     return map;
 }
 
@@ -204,11 +205,11 @@ pub const HttpResponse = struct {
             var val = allocator.dupe(u8, entry.value_ptr.*) catch {
                 std.debug.panic("FAIL headers val dupe", .{});
             };
-            var row = WasiTuple{
+            var tup = WasiTuple{
                 .f0 = WasiStr{ .ptr = key.ptr, .len = key.len },
                 .f1 = WasiStr{ .ptr = val.ptr, .len = val.len },
             };
-            arr.append(row) catch {
+            arr.append(tup) catch {
                 std.debug.panic("FAIL headers slice", .{});
             };
         }
@@ -277,6 +278,16 @@ pub const HttpRequest = struct {
         self.headers.deinit();
         self.params.deinit();
     }
+};
+// TODO refactor w mal (in signature_tests)
+pub const WReq = struct {
+    const Self = @This();
+    allocator: Allocator,
+    method: HttpMethod,
+    uri: []const u8,
+    headers: row.HeaderList,
+    params: std.StringHashMap([]const u8),
+    body: std.ArrayList(u8),
 };
 
 // C/interop address

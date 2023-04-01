@@ -5,6 +5,7 @@ const status = @import("status.zig");
 const config = @import("config.zig");
 const redis = @import("redis.zig");
 const signature = @import("signature.zig");
+const row = @import("rows.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log;
 
@@ -18,7 +19,8 @@ pub fn eval(allocator: Allocator, w: *lib.HttpResponse, r: *lib.HttpRequest) voi
 
 const InboxImpl = struct {
     fn eval(allocator: Allocator, w: *lib.HttpResponse, req: *lib.HttpRequest) void {
-        const bad = unknownSignature(allocator, req);
+        const bad = unknownSignature(allocator, req) catch true;
+
         if (bad) {
             return status.forbidden(w);
         }
@@ -45,13 +47,14 @@ const InboxImpl = struct {
     }
 };
 
-fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) bool {
+fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) !bool {
     const bad = true;
 
-    signature.init(allocator, .{ .request = req });
-    defer signature.deinit();
+    var placeholder: row.HeaderList = undefined;
+    placeholder.init();
+    try signature.init(.{ .refactorInProgress = placeholder });
 
-    const hashed = signature.calculate(allocator, .{ .request = req }) catch {
+    const hashed = signature.calculate(allocator, .{ .request = req, .refactorInProgress = placeholder }) catch {
         log.err("sha256 recreate failed", .{});
         return bad;
     };

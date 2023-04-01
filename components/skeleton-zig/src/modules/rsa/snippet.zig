@@ -14,6 +14,7 @@ pub const snippet = struct {
         exponent: []const u8,
     ) !void {
 
+        //if (pub_key_algo != .rsaEncryption) return error.CertificateSignatureAlgorithmMismatch;
         //const pk_components = try rsa.PublicKey.parseDer(pub_key);
         //const exponent = pk_components.exponent;
         //const modulus = pk_components.modulus;
@@ -65,10 +66,10 @@ pub const snippet = struct {
                     hash_der ++
                     hashed;
 
-                const pubk = rsa.PublicKey.fromBytes(exponent, modulus, ally) catch |err| switch (err) {
+                const public_key = rsa.PublicKey.fromBytes(exponent, modulus, ally) catch |err| switch (err) {
                     error.OutOfMemory => unreachable, // rsa_mem_buf is big enough
                 };
-                const em_dec = encrypt(modulus_len, sig[0..modulus_len].*, pubk.n, pubk.e, ally) catch |err| switch (err) {
+                const em_dec = encrypt(modulus_len, sig[0..modulus_len].*, public_key.n, public_key.e, ally) catch |err| switch (err) {
                     error.OutOfMemory => unreachable, // rsa_mem_buf is big enough
 
                     error.MessageTooLong => unreachable,

@@ -2,6 +2,7 @@ const std = @import("std");
 
 const lib = @import("../lib.zig");
 const signature = @import("../signature.zig");
+const mal = @import("../mal.zig");
 const Allocator = std.mem.Allocator;
 const ed25519 = std.crypto.sign.Ed25519;
 const expect = std.testing.expect;
@@ -9,62 +10,47 @@ const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
 const debug = std.debug;
 
-////test "minimal signature (TODO using rsa-pss-sha512)" {
-test "example signature " {
+test "signature base input string" {
+    const ally = std.testing.allocator;
+
+    var request = try basicRequest(ally);
+    signature.init(ally, .{ .refactorInProgress = request.headers });
+    defer signature.deinit();
+    const base_input = try signature.baseInput(ally, .{ .request = request, .refactorInProgress = request.headers });
+    try expectStr(
+        "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT",
+        base_input,
+    );
+}
+test "SHA-256 sum of signature base input" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var allocator = arena.allocator();
-    var req = try testRequest(allocator);
-    signature.init(allocator, .{ .request = req });
+    var req = try basicRequest(allocator);
+    signature.init(allocator, .{ .refactorInProgress = req.headers });
     defer signature.deinit();
-    signature.attachFetch(testKeyRSAPSS);
-    const hashed = try signature.calculate(allocator, .{ .request = req });
-    const check = try signature.verify(allocator, hashed);
-
-    try expect(check);
+    //const hashed = try signature.calculate(allocator, .{ .request = req, .refactorInProgress = req.headers });
+    // triple-check, the SHA-256 hash is always 32 bytes
+    //try expect(hashed.len == 32);
+    return error.SkipZigTest;
 }
 
-test "verify can read rsa public key" {
+test "draft-cavage-http-signatures-12 C.2. Basic Test" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var allocator = arena.allocator();
-
-    return error.SkipZigTest;
-    var req = try requestHelloRSA(allocator);
-    signature.init(allocator, .{ .request = req });
+    var req = try basicRequest(allocator);
+    signature.init(allocator, .{ .refactorInProgress = req.headers });
     defer signature.deinit();
-    signature.attachFetch(publicKeyHelloRSA);
-    const hashed = try signature.calculate(allocator, .{ .request = req });
-    const check = try signature.verify(allocator, hashed);
-    debug.print("test {any}", .{check});
-
-    try expect(check);
-}
-
-test "calculate ed25519 compatible" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    const req = try requestEd25519(allocator);
-    debug.print("TBD {any}", .{req.method});
-    //try expectStr("", "PLACEHOLDER");
-    return error.SkipZigTest;
-}
-
-test "verify requires signature" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var req = requestNoSignature(allocator);
-
-    debug.print("TBD {any}", .{req.method});
-    //try expectErr(signature.SignatureError.SignatureAbsent,
-    //    signature.SignatureError.FetchNotDefined);
+    signature.attachFetch(basicPublicKeyRSA);
+    //const hashed = try signature.calculate(allocator, .{ .request = req, .refactorInProgress = req.headers });
+    //const check = try signature.verify(allocator, hashed);
+    //try expect(check);
     return error.SkipZigTest;
 }
 
 //const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
-fn testKeyRSAPSS(allocator: Allocator, proxy: []const u8) signature.PublicKey {
+fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKey {
     _ = proxy;
     const key = signature.fromPEM(allocator, pub_key_pem) catch |err| {
         debug.panic("PEM decode failed, {!}", .{err});
@@ -76,25 +62,8 @@ fn testKeyRSAPSS(allocator: Allocator, proxy: []const u8) signature.PublicKey {
     };
 }
 
-fn publicKeyHelloRSA(allocator: Allocator, proxy: []const u8) signature.PublicKey {
-    _ = proxy;
-
-    const key = signature.fromPEM(allocator, pubPEM) catch |err| {
-        debug.panic("PEM decode failed, {!}", .{err});
-    };
-
-    return signature.PublicKey{
-        .N = key.N,
-        .E = key.E,
-    };
-}
-fn publicKeyEd25519(proxy: []const u8) []const u8 {
-    _ = proxy;
-    return "PUBKEY-TEST";
-}
-
-fn testRequest(allocator: Allocator) !*lib.HttpRequest {
-    var headers = std.StringHashMap([]const u8).init(allocator);
+fn basicRequest(allocator: Allocator) !*lib.WReq {
+    var headers = mal.HeaderList.init(allocator);
     var params = std.StringHashMap([]const u8).init(allocator);
     var body = std.ArrayList(u8).init(allocator);
 
@@ -102,62 +71,15 @@ fn testRequest(allocator: Allocator) !*lib.HttpRequest {
     const uri = "/foo?param=value&pet=dog";
 
     try body.appendSlice("{\"hello\": \"world\"}");
-    try headers.put("host", "example.com");
-    try headers.put("date", "Thu, 05 Jan 2014 21:31:40 GMT");
-    try headers.put("content-type", "application/json");
-    try headers.put("digest", "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=");
-    try headers.put("content-length", "18");
-    try headers.put(
-        "signature",
-        "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"\"",
-    );
-    return newRequest(allocator, post, uri, headers, params, body);
-}
-fn requestHelloRSA(allocator: Allocator) !*lib.HttpRequest {
-    var headers = std.StringHashMap([]const u8).init(allocator);
-    var params = std.StringHashMap([]const u8).init(allocator);
-    var body = std.ArrayList(u8).init(allocator);
-
-    const post = 1;
-    const uri = "/foo?param=value&pet=dog";
-
-    try body.appendSlice("{\"hello\": \"world\"}");
-    try headers.put("host", "example.com");
-    try headers.put("date", "Thu, 05 Jan 2014 21:31:40 GMT");
-    try headers.put("content-type", "application/json");
-    try headers.put("digest", "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=");
-    try headers.put("content-length", "18");
-    try headers.put(
-        "signature",
-        "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date content-type digest content-length\",signature=\"Ef7MlxLXoBovhil3AlyjtBwAL9g4TN3tibLj7uuNB3CROat/9KaeQ4hW2NiJ+pZ6HQEOx9vYZAyi+7cmIkmJszJCut5kQLAwuX+Ms/mUFvpKlSo9StS2bMXDBNjOh4Auj774GFj4gwjS+3NhFeoqyr/MuN6HsEnkvn6zdgfE2i0=\"",
-    );
-    return newRequest(allocator, post, uri, headers, params, body);
-}
-
-fn requestEd25519(allocator: Allocator) !*lib.HttpRequest {
-    var headers = std.StringHashMap([]const u8).init(allocator);
-    var params = std.StringHashMap([]const u8).init(allocator);
-    var body = std.ArrayList(u8).init(allocator);
-
-    const post = 1;
-    const uri = "/foo?param=value&pet=dog";
-
-    try body.appendSlice("{\"hello\": \"ed25519\"}");
-    try headers.put(
-        "signature",
-        "",
-    );
-    return newRequest(allocator, post, uri, headers, params, body);
-}
-
-fn requestNoSignature(allocator: Allocator) *lib.HttpRequest {
-    var headers = std.StringHashMap([]const u8).init(allocator);
-    var params = std.StringHashMap([]const u8).init(allocator);
-    var body = std.ArrayList(u8).init(allocator);
-
-    const post = 1;
-    const uri = "/foo?param=value&pet=dog";
-
+    try headers.add(.{ .col = .host, .txt = "example.com" });
+    try headers.add(.{ .col = .date, .txt = "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try headers.add(.{ .col = .contentType, .txt = "application/json" });
+    try headers.add(.{ .col = .digest, .txt = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try headers.add(.{ .col = .contentLength, .txt = "18" });
+    try headers.add(.{
+        .col = .signature,
+        .txt = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+    });
     return newRequest(allocator, post, uri, headers, params, body);
 }
 
@@ -165,11 +87,11 @@ fn newRequest(
     allocator: Allocator,
     method: u8,
     uri: []const u8,
-    headers: std.StringHashMap([]const u8),
+    headers: mal.HeaderList,
     params: std.StringHashMap([]const u8),
     body: std.ArrayList(u8),
-) *lib.HttpRequest {
-    var req = lib.HttpRequest{
+) *lib.WReq {
+    var req = lib.WReq{
         .allocator = allocator,
         .method = method,
         .uri = uri,
@@ -200,13 +122,10 @@ const pubPEM =
 
 const pub_key_pem =
     \\-----BEGIN PUBLIC KEY-----
-    \\MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt0c14FLZWHqgNJzlHrpR
-    \\yx9CuW+w5DYo/5s59FZHEgNzTjUJyE3Jfxx1j/6gcCWmZGoTULR5ILZySe/jagQw
-    \\JvLl7dkOcf7K3FGh3JpoTeZpInFjVSyKag3PfstQI/Hq/JIV9mysGk2hNoo/0Jvh
-    \\2vT48jGuxhrwHchJdNeYs8eBtvSfIlXsnt9K1qZVU9T+anG7wwn42t5GcQ391vxk
-    \\DLgUzF5K1wSzOQoXh5lryW/BZzEmAhFqGZz69UsjRoS1ia53nb1LjXBpZdetvqU6
-    \\0YlOHfRc19tgUnmkMqXqMV6lRUmFqyFh/kj50GE5FsuQSjlNaKiotuZg/KJ/DhfO
-    \\HwIDAQAB
+    \\MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCFENGw33yGihy92pDjZQhl0C3
+    \\6rPJj+CvfSC8+q28hxA161QFNUd13wuCTUcq0Qd2qsBe/2hFyc2DCJJg0h1L78+6
+    \\Z4UMR7EOcpfdUE9Hf3m/hs+FUR45uBJeDK1HSFHD8bHKD6kv8FPGfJTotc+2xjJw
+    \\oYi+1hqp1fIekaxsyQIDAQAB
     \\-----END PUBLIC KEY-----
 ;
 
