@@ -14,11 +14,11 @@ pub fn Rows(comptime T: type, comptime D: type) type {
         cells: std.EnumArray(T, D),
         present: std.EnumSet(T),
 
-        pub fn init(self: *Self) void {
-            // TODO insted of undefined, need to zero the cells
-            //
-            self.cells = std.EnumArray(T, D).initUndefined();
-            self.present = std.EnumSet(T).initEmpty();
+        pub fn init() Self {
+            return Self{
+                .cells = std.EnumArray(T, D).initUndefined(),
+                .present = std.EnumSet(T).initEmpty(),
+            };
         }
 
         pub fn get(self: Self, ct: T) D {
@@ -31,13 +31,15 @@ pub fn Rows(comptime T: type, comptime D: type) type {
             var entry: D = undefined;
             entry.set(c_type, opt.val, label);
 
+            // include membership in set
             self.present.insert(c_type);
+            // insert entry into collection
             self.cells.set(c_type, entry);
         }
 
         // unmarshal raw data from the signature subheaders
         pub fn read(self: *Self, raw: []const u8) !void {
-            // splitting on "=" needs consideration
+            // splitting on "=" needs re/consideration
 
             // expect field1="val1",field2="val2"
             var list = try split(raw);
@@ -73,16 +75,17 @@ pub fn Cell(comptime T: type) type {
 
 // possible sub/header types for set membership
 pub const CellType = enum {
-    algorithm,
     authorization,
     content_type,
     content_length,
     date,
     digest,
-    headers,
     host,
-    key_id,
     signature,
+    sub_algorithm,
+    sub_headers,
+    sub_key_id,
+    sub_signature,
 
     other,
 };
@@ -106,9 +109,10 @@ fn fmtLabel(ct: CellType, default: []const u8) ![]const u8 {
         .content_length => label = "content-length",
         .signature => label = "signature",
         .digest => label = "digest",
-        .headers => label = "headers",
-        .key_id => label = "keyId",
-        .algorithm => label = "algorithm",
+        .sub_headers => label = "headers",
+        .sub_key_id => label = "keyId",
+        .sub_algorithm => label = "algorithm",
+        .sub_signature => label = "signature",
 
         else => {
             // assume label is less than 128 bytes
@@ -127,7 +131,7 @@ fn cellEnum(name: []const u8) CellType {
     if (mem.eql(u8, "authorization", name)) {
         c_type = CellType.authorization;
     } else if (mem.eql(u8, "algorithm", name)) {
-        c_type = CellType.algorithm;
+        c_type = CellType.sub_algorithm;
     } else if (mem.eql(u8, "content-type", name)) {
         c_type = CellType.content_type;
     } else if (mem.eql(u8, "content-length", name)) {
@@ -137,11 +141,13 @@ fn cellEnum(name: []const u8) CellType {
     } else if (mem.eql(u8, "digest", name)) {
         c_type = CellType.digest;
     } else if (mem.eql(u8, "headers", name)) {
-        c_type = CellType.headers;
+        c_type = CellType.sub_headers;
     } else if (mem.eql(u8, "keyId", name)) {
-        c_type = CellType.key_id;
+        c_type = CellType.sub_key_id;
     } else if (mem.eql(u8, "signature", name)) {
         c_type = CellType.signature;
+    } else if (mem.eql(u8, "sub-signature", name)) {
+        c_type = CellType.sub_signature;
     }
 
     return c_type;

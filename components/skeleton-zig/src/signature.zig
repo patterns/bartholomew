@@ -24,13 +24,10 @@ var produce: ProduceKeyFn = undefined;
 // SHA256 hash creates digests of 32 bytes.
 const sha256_len: usize = 32;
 
-pub fn init(option: anytype) !void {
-    const headers = option.refactorInProgress;
-    var sig = headers.get(.signature).value;
-
-    // extract request header to make a map of signature fields
-    impl.map.init();
-    try impl.map.read(sig);
+pub fn init(headers: row.HeaderList) !void {
+    const sub_headers = headers.get(.signature).value;
+    impl.map = row.SignatureList.init();
+    try impl.map.read(sub_headers);
 }
 
 // user defined steps to retrieve the public key
@@ -51,13 +48,13 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]u8 {
     return &buffer;
 }
 // recreate the signature base input
-pub fn baseInput(allocator: Allocator, option: anytype) ![]u8 {
-    const req = option.request;
-    const h = option.refactorInProgress;
-    const m = req.method;
-    const u = req.uri;
-
-    return impl.recreate(allocator, m, u, h);
+pub fn baseInput(
+    allocator: Allocator,
+    headers: row.HeaderList,
+    method: u8,
+    uri: []const u8,
+) ![]u8 {
+    return impl.recreate(allocator, method, uri, headers);
 }
 
 pub fn verify(allocator: Allocator, hashed: []u8) !bool {
@@ -72,7 +69,7 @@ pub fn verify(allocator: Allocator, hashed: []u8) !bool {
 }
 fn produceKey(allocator: Allocator) !PublicKey {
     if (produce != undefined) {
-        const kp = impl.map.get(.key_id).value;
+        const kp = impl.map.get(.sub_key_id).value;
         return produce(allocator, kp);
     }
     return error.FetchNotDefined;
@@ -93,14 +90,14 @@ const SignedByRSAImpl = struct {
         uri: []const u8,
         headers: row.HeaderList,
     ) ![]u8 {
-        var recipe = self.map.get(.headers).value;
+        var recipe = self.map.get(.sub_headers).value;
 
         var iter = mem.split(u8, recipe, " ");
         var input_string = std.ArrayList(u8).init(allocator);
         ////defer input_string.deinit();
         const writer = input_string.writer();
 
-        // construct input-string according to sequence 'headers'
+        // reconstruct input-string
         const first = iter.first();
         try formatInputLeader(&input_string, first, method, uri);
 
@@ -157,7 +154,7 @@ const SignedByRSAImpl = struct {
     // The signature becomes the length of the SHA256 hash after base64 decoding.
     // We're basically unwrapping or reversing the steps from the signing.
     fn decodeB64(self: Self) ![]u8 {
-        const sig = self.map.get(.signature).value;
+        const sig = self.map.get(.sub_signature).value;
         const sz = try b64.calcSizeForSlice(sig);
         // TODO double-confirm this logic because I must have read the Golang wrong
         //if (sha256_len < sz) {
@@ -316,6 +313,7 @@ fn formatInputLeader(
     method: u8,
     uri: []const u8,
 ) !void {
+    // TODO double-check this, seen docs that begin with other subheaders
     if (!mem.startsWith(u8, first, "(request-target)")) {
         // input sequence always starts with
         log.err("httpsig hdr unkown format, \n", .{});

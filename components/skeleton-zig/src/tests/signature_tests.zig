@@ -2,7 +2,7 @@ const std = @import("std");
 
 const lib = @import("../lib.zig");
 const signature = @import("../signature.zig");
-const mal = @import("../mal.zig");
+const row = @import("../rows.zig");
 const Allocator = std.mem.Allocator;
 const ed25519 = std.crypto.sign.Ed25519;
 const expect = std.testing.expect;
@@ -12,11 +12,15 @@ const debug = std.debug;
 
 test "signature base input string" {
     const ally = std.testing.allocator;
+    var basic_req = try basicRequest(ally);
+    try signature.init(basic_req.headers);
 
-    var request = try basicRequest(ally);
-    signature.init(ally, .{ .refactorInProgress = request.headers });
-    defer signature.deinit();
-    const base_input = try signature.baseInput(ally, .{ .request = request, .refactorInProgress = request.headers });
+    const base_input = try signature.baseInput(
+        ally,
+        basic_req.headers,
+        basic_req.method,
+        basic_req.uri,
+    );
     try expectStr(
         "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT",
         base_input,
@@ -26,9 +30,8 @@ test "SHA-256 sum of signature base input" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var allocator = arena.allocator();
-    var req = try basicRequest(allocator);
-    signature.init(allocator, .{ .refactorInProgress = req.headers });
-    defer signature.deinit();
+    var request = try basicRequest(allocator);
+    try signature.init(request.headers);
     //const hashed = try signature.calculate(allocator, .{ .request = req, .refactorInProgress = req.headers });
     // triple-check, the SHA-256 hash is always 32 bytes
     //try expect(hashed.len == 32);
@@ -39,9 +42,8 @@ test "draft-cavage-http-signatures-12 C.2. Basic Test" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     var allocator = arena.allocator();
-    var req = try basicRequest(allocator);
-    signature.init(allocator, .{ .refactorInProgress = req.headers });
-    defer signature.deinit();
+    var request = try basicRequest(allocator);
+    try signature.init(request.headers);
     signature.attachFetch(basicPublicKeyRSA);
     //const hashed = try signature.calculate(allocator, .{ .request = req, .refactorInProgress = req.headers });
     //const check = try signature.verify(allocator, hashed);
@@ -63,22 +65,23 @@ fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKe
 }
 
 fn basicRequest(allocator: Allocator) !*lib.WReq {
-    var headers = mal.HeaderList.init(allocator);
+    var headers = row.HeaderList.init();
     var params = std.StringHashMap([]const u8).init(allocator);
     var body = std.ArrayList(u8).init(allocator);
 
-    const post = 1;
+    const post: u8 = 1;
     const uri = "/foo?param=value&pet=dog";
 
     try body.appendSlice("{\"hello\": \"world\"}");
-    try headers.add(.{ .col = .host, .txt = "example.com" });
-    try headers.add(.{ .col = .date, .txt = "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try headers.add(.{ .col = .contentType, .txt = "application/json" });
-    try headers.add(.{ .col = .digest, .txt = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try headers.add(.{ .col = .contentLength, .txt = "18" });
+    try headers.add(.{ .cell_type = .host, .label = "host", .val = "example.com" });
+    try headers.add(.{ .cell_type = .date, .label = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try headers.add(.{ .cell_type = .content_type, .label = "content-type", .val = "application/json" });
+    try headers.add(.{ .cell_type = .digest, .label = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try headers.add(.{ .cell_type = .content_length, .label = "content-length", .val = "18" });
     try headers.add(.{
-        .col = .signature,
-        .txt = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+        .cell_type = .signature,
+        .label = "signature",
+        .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     });
     return newRequest(allocator, post, uri, headers, params, body);
 }
@@ -87,7 +90,7 @@ fn newRequest(
     allocator: Allocator,
     method: u8,
     uri: []const u8,
-    headers: mal.HeaderList,
+    headers: row.HeaderList,
     params: std.StringHashMap([]const u8),
     body: std.ArrayList(u8),
 ) *lib.WReq {

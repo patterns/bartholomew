@@ -50,9 +50,9 @@ const InboxImpl = struct {
 fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) !bool {
     const bad = true;
 
-    var placeholder: row.HeaderList = undefined;
-    placeholder.init();
-    try signature.init(.{ .refactorInProgress = placeholder });
+    //var placeholder: row.HeaderList = undefined;
+    var placeholder = row.HeaderList.init();
+    try signature.init(placeholder);
 
     const hashed = signature.calculate(allocator, .{ .request = req, .refactorInProgress = placeholder }) catch {
         log.err("sha256 recreate failed", .{});
