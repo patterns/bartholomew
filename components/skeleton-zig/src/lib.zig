@@ -282,12 +282,12 @@ pub const HttpRequest = struct {
 // TODO refactor w mal (in signature_tests)
 pub const WReq = struct {
     const Self = @This();
-    allocator: Allocator,
+
     method: HttpMethod,
     uri: []const u8,
     headers: row.HeaderList,
-    params: std.StringHashMap([]const u8),
-    body: std.ArrayList(u8),
+
+    body: std.BoundedArray(u8, 8192),
 };
 
 // C/interop address

@@ -25,9 +25,18 @@ var produce: ProduceKeyFn = undefined;
 const sha256_len: usize = 32;
 
 pub fn init(headers: row.HeaderList) !void {
-    const sub_headers = headers.get(.signature).value;
+    // We rewrite the subheader 'signature' to 'sub-signature' as a quick&dirty
+    // workaround for now and need to revisit the combined enum set.
+    // The subheaders should be < 8K.
+    var buffer: [2048]u8 = undefined;
+    var sub_headers = headers.get(.signature).value;
+    const count = mem.replace(u8, sub_headers, "signature", "sub-signature", &buffer);
+    if (count != 1) {
+        log.err("Missing signature subheader; is origin httpsig spec newer (than cavage draft12)?", .{});
+        return error.SubheaderSignature;
+    }
     impl.map = row.SignatureList.init();
-    try impl.map.read(sub_headers);
+    try impl.map.read(&buffer);
 }
 
 // user defined steps to retrieve the public key
