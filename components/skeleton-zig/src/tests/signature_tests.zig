@@ -12,7 +12,7 @@ const debug = std.debug;
 
 test "subheaders read mapping" {
     var headers = row.HeaderList.init();
-    const raw = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"";
+    const raw = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",sub-signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"";
 
     // To workaround the enum collision, rewrite the signature subheader field-name.
 
@@ -24,12 +24,20 @@ test "subheaders read mapping" {
     try expectStr("rsa-sha256", subheader_algo);
     const subheader_hd = headers.get(.sub_headers).value;
     try expectStr("(request-target) host date", subheader_hd);
+
     const subheader_sig = headers.get(.sub_signature).value;
-    try expectStr("", subheader_sig);
-    //        "",
-    //        subheader_sig,
-    //        );
-    ////        "qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=",
+    const ally = std.testing.allocator;
+    var b64 = std.base64.standard_no_pad.Decoder;
+    const max = try b64.calcSizeForSlice(subheader_sig);
+    var decoded_orig = try ally.alloc(u8, max);
+    var decoded_sub = try ally.alloc(u8, max);
+
+    try b64.decode(
+        decoded_orig,
+        "qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=",
+    );
+    try b64.decode(decoded_sub, subheader_sig);
+    try std.testing.expectEqual(decoded_orig, decoded_sub);
 }
 
 test "signature base input string" {
@@ -71,15 +79,15 @@ fn basicRequest() !*lib.WReq {
     const uri = "/foo?param=value&pet=dog";
 
     _ = try body.writer().write("{\"hello\": \"world\"}");
-    try headers.add(.{ .cell_type = .host, .label = "host", .val = "example.com" });
-    try headers.add(.{ .cell_type = .date, .label = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try headers.add(.{ .cell_type = .content_type, .label = "content-type", .val = "application/json" });
-    try headers.add(.{ .cell_type = .digest, .label = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try headers.add(.{ .cell_type = .content_length, .label = "content-length", .val = "18" });
+    try headers.add(.{ .cell_type = .host, .label = "host", .value = "example.com" });
+    try headers.add(.{ .cell_type = .date, .label = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try headers.add(.{ .cell_type = .content_type, .label = "content-type", .value = "application/json" });
+    try headers.add(.{ .cell_type = .digest, .label = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try headers.add(.{ .cell_type = .content_length, .label = "content-length", .value = "18" });
     try headers.add(.{
         .cell_type = .signature,
         .label = "signature",
-        .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     });
     return newRequest(post, uri, headers, body);
 }

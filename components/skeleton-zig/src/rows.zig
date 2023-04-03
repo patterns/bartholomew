@@ -17,13 +17,11 @@ pub fn Rows(comptime T: type, comptime D: type) type {
         const Self = @This();
         cells: std.EnumArray(T, D),
         present: std.EnumSet(T),
-        buffer: [4096]u8,
 
         pub fn init() Self {
             return Self{
                 .cells = std.EnumArray(T, D).initUndefined(),
                 .present = std.EnumSet(T).initEmpty(),
-                .buffer = undefined,
             };
         }
 
@@ -33,16 +31,13 @@ pub fn Rows(comptime T: type, comptime D: type) type {
                 return self.cells.get(ct);
             }
             // zero fields
-            var z: D = undefined;
-            z.update(ct, "", "");
-            return z;
+            return D.init(ct, "", "");
         }
 
         pub fn add(self: *Self, opt: anytype) !void {
             const c_type = opt.cell_type;
-            var label = try fmtLabel(c_type, opt.label);
-            var entry: D = undefined;
-            entry.update(c_type, opt.val, label);
+            var entry = D.init(c_type, "", "");
+            entry.update(opt.value, opt.label);
 
             // include membership in set
             self.present.insert(c_type);
@@ -57,13 +52,13 @@ pub fn Rows(comptime T: type, comptime D: type) type {
             // we are rewriting 'signature' to 'sub-signature' as quick&dirty, for now.
             // splitting on "=" needs re/consideration
 
-            var fba = std.heap.FixedBufferAllocator.init(&(self.buffer));
+            var arr = try std.BoundedArray(Cell(CellType), 64).init(12);
 
             // expect field1="val1",field2="val2"
-            var list = try split(fba.allocator(), raw);
+            try split(&arr, raw);
 
-            // assign result to rowdata
-            while (list.popOrNull()) |sub_header| {
+            // traverse and assign cell to row
+            while (arr.popOrNull()) |sub_header| {
                 const c_type = sub_header.cell_type;
                 self.present.insert(c_type);
                 self.cells.set(c_type, sub_header);
@@ -76,6 +71,7 @@ pub fn Rows(comptime T: type, comptime D: type) type {
 pub fn Cell(comptime T: type) type {
     // TODO a cell-type 'other' can land on 1+ values
     //      (maybe keep a linked-list just for that cell-type)
+    //      which would mean a flag "has_siblings" or "can_have_siblings"
 
     return struct {
         const Self = @This();
@@ -83,9 +79,23 @@ pub fn Cell(comptime T: type) type {
         value: []const u8,
         label: []const u8,
 
-        pub fn update(self: *Self, ct: T, val: []const u8, label: []const u8) void {
-            self.cell_type = ct;
-            self.value = val;
+        pub fn init(ct: T, val: []const u8, label: []const u8) Self {
+            return Self{
+                .cell_type = ct,
+                .value = val,
+                .label = label,
+            };
+        }
+
+        // helper to shape input
+        pub fn update(self: *Self, value: []const u8, field: []const u8) void {
+            // cell-type may be initialized earlier
+            if (self.cell_type == undefined or self.cell_type == .other) {
+                // if not, need to "derive" cell-type from field
+                self.cell_type = cellEnum(field);
+            }
+            const label = fmtLabel(self.cell_type, field);
+            self.value = value;
             self.label = label;
         }
     };
@@ -118,7 +128,7 @@ pub const Subheader = Cell(CellType);
 pub const SignatureList = Rows(CellType, Subheader);
 
 // can we switch on the union of the two enum types?
-fn fmtLabel(ct: CellType, default: []const u8) ![]const u8 {
+fn fmtLabel(ct: CellType, default: []const u8) []const u8 {
     var label: []const u8 = undefined;
     switch (ct) {
         .authorization => label = "authorization",
@@ -143,114 +153,96 @@ fn fmtLabel(ct: CellType, default: []const u8) ![]const u8 {
 }
 
 // accept name of cell-type, and return the associated enum
-fn cellEnum(name: []const u8) CellType {
+fn cellEnum(field: []const u8) CellType {
     var c_type = CellType.other;
 
-    if (mem.eql(u8, "authorization", name)) {
+    if (streq("authorization", field)) {
         c_type = CellType.authorization;
-    } else if (mem.eql(u8, "algorithm", name)) {
+    } else if (streq("algorithm", field)) {
         c_type = CellType.sub_algorithm;
-    } else if (mem.eql(u8, "content-type", name)) {
+    } else if (streq("content-type", field)) {
         c_type = CellType.content_type;
-    } else if (mem.eql(u8, "content-length", name)) {
+    } else if (streq("content-length", field)) {
         c_type = CellType.content_length;
-    } else if (mem.eql(u8, "date", name)) {
+    } else if (streq("date", field)) {
         c_type = CellType.date;
-    } else if (mem.eql(u8, "digest", name)) {
+    } else if (streq("digest", field)) {
         c_type = CellType.digest;
-    } else if (mem.eql(u8, "headers", name)) {
+    } else if (streq("headers", field)) {
         c_type = CellType.sub_headers;
-    } else if (mem.eql(u8, "keyId", name)) {
+    } else if (streq("keyId", field)) {
         c_type = CellType.sub_key_id;
-    } else if (mem.eql(u8, "signature", name)) {
+    } else if (streq("signature", field)) {
         c_type = CellType.signature;
-    } else if (mem.eql(u8, "sub-signature", name)) {
+    } else if (streq("sub-signature", field)) {
         c_type = CellType.sub_signature;
     }
 
     return c_type;
 }
+fn streq(comptime text: []const u8, field: []const u8) bool {
+    return mem.eql(u8, text, field);
+}
 
-fn split(ally: Allocator, data: []const u8) !std.BoundedArray(Cell(CellType), 64) {
+fn split(arr: *std.BoundedArray(Cell(CellType), 64), data: []const u8) !void {
     const delim: []const u8 = ",";
     // expect field1=val1<delim>field2=val2
 
-    // intermediate buffer, refactor this to basic array[]?
-    var arr = try std.BoundedArray(Cell(CellType), 64).init(2);
-
     if (!mem.containsAtLeast(u8, data, 1, delim)) {
         // possible one/single pair
-        const tup = try pairs(ally, data);
-        //defer ally.free(tup);
-        const c_type = cellEnum(tup.field);
-        var label = try fmtLabel(c_type, tup.field);
+        const tup = try tokens(data);
         var cell: Cell(CellType) = undefined;
-        cell.update(c_type, tup.value, label);
+        cell.update(tup.value, tup.field);
         try arr.append(cell);
-
-        return arr;
+        return;
     }
 
     var iter = mem.split(u8, data, delim);
     while (iter.next()) |segment| {
-        const tup = try pairs(ally, segment);
-        //defer ally.free(tup);
-
-        const c_type = cellEnum(tup.field);
-        var label = try fmtLabel(c_type, tup.field);
+        const tup = try tokens(segment);
         var cell: Cell(CellType) = undefined;
-        cell.update(c_type, tup.value, label);
+        cell.update(tup.value, tup.field);
         try arr.append(cell);
     }
-    return arr;
 }
 
 // accept 'field1="val1"' and return {field1, val1}
-fn pairs(ally: Allocator, remain: []const u8) !struct { field: []const u8, value: []const u8 } {
-    var max = remain.len;
-    //var div: usize = undefined;
-    //if (mem.indexOf(u8, remain, "=")) |index| {
-    //        div = index;
-    //} else {
-    //        return null;
-    //}
-    var tmp_name = std.ArrayList(u8).init(ally);
-    var tmp_val = std.ArrayList(u8).init(ally);
-    var stream = std.io.fixedBufferStream(remain);
-    var rdr = stream.reader();
-    try rdr.readUntilDelimiterArrayList(&tmp_name, '=', max);
+fn tokens(remain: []const u8) !struct { field: []const u8, value: []const u8 } {
+    var fld_name: []const u8 = undefined;
+    var fld_val: []const u8 = undefined;
 
-    const fld_name = try tmp_name.toOwnedSlice();
+    // tokenize stream by equal (=) and quotes (")
+    var iter = mem.tokenize(u8, remain, "=\"");
 
-    const open_quotes = try rdr.readByte();
-    const arr = mem.toBytes(open_quotes);
-    if (!mem.eql(u8, "\"", &arr)) {
-        return error.UnknownSignatureFormat;
+    if (iter.next()) |field| {
+        fld_name = field;
+    } else {
+        log.err("Failed on tokenize field, {s}", .{remain});
+        return error.TokenSignatureField;
     }
-    max = max - fld_name.len;
-    try rdr.readUntilDelimiterArrayList(&tmp_val, '"', max);
-
-    const fld_val = try tmp_val.toOwnedSlice();
-
-    //const discard: []const u8 = "\"";
-    //var cleaned = mem.trim(u8, val, discard);
+    if (iter.next()) |value| {
+        fld_val = value;
+    } else {
+        log.err("Failed on tokenize value, {s}", .{remain});
+        return error.TokenSignatureValue;
+    }
 
     return .{ .field = fld_name, .value = fld_val };
 }
 
 const expectStr = std.testing.expectEqualStrings;
 
-test "headers add then get" {
+test "headers assignment and retrieval" {
     var headers = HeaderList.init();
-    try headers.add(.{ .cell_type = .host, .label = "host", .val = "example.com" });
-    try headers.add(.{ .cell_type = .date, .label = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try headers.add(.{ .cell_type = .content_type, .label = "content-type", .val = "application/json" });
-    try headers.add(.{ .cell_type = .digest, .label = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try headers.add(.{ .cell_type = .content_length, .label = "content-length", .val = "18" });
+    try headers.add(.{ .cell_type = .host, .label = "host", .value = "example.com" });
+    try headers.add(.{ .cell_type = .date, .label = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try headers.add(.{ .cell_type = .content_type, .label = "content-type", .value = "application/json" });
+    try headers.add(.{ .cell_type = .digest, .label = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try headers.add(.{ .cell_type = .content_length, .label = "content-length", .value = "18" });
     try headers.add(.{
         .cell_type = .signature,
         .label = "signature",
-        .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     });
     const host_rcvd = headers.get(.host).value;
     try expectStr("example.com", host_rcvd);

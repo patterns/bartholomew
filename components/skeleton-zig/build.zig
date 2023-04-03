@@ -11,6 +11,7 @@ const export_names = [_][]const u8 {
 pub fn build(b: *bld.Builder) !void {
     const ct = try std.zig.CrossTarget.parse(.{.arch_os_abi = "wasm32-wasi"});
     const to = b.standardTargetOptions(.{.default_target = ct});
+    ////const to = b.standardTargetOptions(.{});
     const oo = b.standardOptimizeOption(.{});
 
     const exe = b.addExecutable(optMain(.{.target=to, .optimize=oo}));
@@ -30,7 +31,7 @@ pub fn build(b: *bld.Builder) !void {
 
 fn optMain(option: anytype) bld.ExecutableOptions {
     return bld.ExecutableOptions {
-        .name = "spincomponent",
+        .name = "timothy",
         .root_source_file = bld.FileSource { .path = "src/main.zig"},
         .target = option.target,
         .optimize = option.optimize,
