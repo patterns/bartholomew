@@ -7,7 +7,7 @@ const row = @import("rows.zig");
 const Allocator = std.mem.Allocator;
 
 //TODO think interface
-pub const EvalFn = *const fn (a: Allocator, w: *HttpResponse, r: *HttpRequest) void;
+pub const EvalFn = *const fn (a: Allocator, w: *HttpResponse, r: *SpinRequest) void;
 
 // start exports to comply with host
 var RET_AREA: [28]u8 align(4) = std.mem.zeroes([28]u8);
@@ -28,7 +28,7 @@ fn GuestHttpStart(
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var request = HttpRequest.init(
+    var request = SpinRequest.init(
         allocator,
         arg_method,
         arg_uriAddr,
@@ -69,7 +69,7 @@ fn GuestHttpStart(
     // copy body to shared mem
     if (response.body.items.len != 0) {
         var cp = allocator.dupe(u8, response.body.items) catch {
-            std.debug.panic("FAIL response OutOfMem", .{});
+            @panic("FAIL response OutOfMem");
         };
         @intToPtr([*c]i8, @intCast(usize, re + 16)).* = 1;
         @intToPtr([*c]i32, @intCast(usize, re + 24)).* = @bitCast(i32, cp.len);
@@ -96,14 +96,14 @@ fn CanonicalAbiRealloc(
     // null means to _allocate_
     if (arg_ptr == null) {
         var newslice = allocator.alloc(u8, arg_newsz) catch {
-            std.debug.panic("FAIL alloc OutOfMem", .{});
+            @panic("FAIL alloc OutOfMem");
         };
         return newslice.ptr;
     }
 
     var slice = @ptrCast([*]u8, arg_ptr.?)[0..arg_oldsz];
     var reslice = allocator.realloc(slice, arg_newsz) catch {
-        std.debug.panic("FAIL realloc OutOfMem", .{});
+        @panic("FAIL realloc OutOfMem");
     };
     return reslice.ptr;
 }
@@ -139,7 +139,7 @@ const xdata = struct {
     pub fn dupe(self: Self, allocator: Allocator) []u8 {
         const old = self.ptr[0..self.len];
         var cp = allocator.dupe(u8, old) catch {
-            std.debug.panic("FAIL xdata dupe ", .{});
+            @panic("FAIL xdata dupe ");
         };
         return cp;
     }
@@ -151,7 +151,28 @@ const xdata = struct {
     }
 };
 
-// map conversion from C arrays
+// list conversion from C arrays
+fn xlist(ally: Allocator, addr: WasiAddr, rowcount: i32) !row.SourceHeaders {
+    var record = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
+    const max = @intCast(usize, rowcount);
+    var list = row.SourceHeaders{};
+    var rownum: usize = 0;
+    while (rownum < max) : (rownum +%= 1) {
+        var tup = record[rownum];
+        const fld = try ally.dupeZ(u8, tup.f0.ptr[0..tup.f0.len]);
+        const val = try ally.dupeZ(u8, tup.f1.ptr[0..tup.f1.len]);
+        try list.append(ally, [2][:0]u8{ fld, val });
+
+        // free old kv
+        CanonicalAbiFree(@ptrCast(?*anyopaque, tup.f0.ptr), tup.f0.len, 1);
+        CanonicalAbiFree(@ptrCast(?*anyopaque, tup.f1.ptr), tup.f1.len, 1);
+    }
+    // free the old array
+    CanonicalAbiFree(@ptrCast(?*anyopaque, record), max *% 16, 4);
+    return list;
+}
+
+// map conversion from C arrays (leaning on xlist as primary to strive for minimal)
 fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
     var record = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
     const count = @intCast(usize, len);
@@ -162,14 +183,14 @@ fn xmap(al: Allocator, addr: WasiAddr, len: i32) std.StringHashMap([]const u8) {
         var kv = record[i];
 
         var key = al.dupe(u8, kv.f0.ptr[0..kv.f0.len]) catch {
-            std.debug.panic("FAIL map key dupe ", .{});
+            @panic("FAIL map key dupe ");
         };
         var val = al.dupe(u8, kv.f1.ptr[0..kv.f1.len]) catch {
-            std.debug.panic("FAIL map val dupe ", .{});
+            @panic("FAIL map val dupe ");
         };
 
         map.put(key, val) catch {
-            std.debug.panic("FAIL map put, {s}", .{key});
+            @panic("FAIL map put, ");
         };
         // free old kv
         CanonicalAbiFree(@ptrCast(?*anyopaque, kv.f0.ptr), kv.f0.len, 1);
@@ -200,17 +221,17 @@ pub const HttpResponse = struct {
         var iter = self.headers.iterator();
         while (iter.next()) |entry| {
             var key = allocator.dupe(u8, entry.key_ptr.*) catch {
-                std.debug.panic("FAIL headers key dupe", .{});
+                @panic("FAIL headers key dupe");
             };
             var val = allocator.dupe(u8, entry.value_ptr.*) catch {
-                std.debug.panic("FAIL headers val dupe", .{});
+                @panic("FAIL headers val dupe");
             };
             var tup = WasiTuple{
                 .f0 = WasiStr{ .ptr = key.ptr, .len = key.len },
                 .f1 = WasiStr{ .ptr = val.ptr, .len = val.len },
             };
             arr.append(tup) catch {
-                std.debug.panic("FAIL headers slice", .{});
+                @panic("FAIL headers slice");
             };
         }
         return arr;
@@ -223,18 +244,18 @@ pub const HttpResponse = struct {
 };
 
 // reader for ziglang consumer
-pub const HttpRequest = struct {
+pub const SpinRequest = struct {
     const Self = @This();
-    allocator: Allocator,
+    ally: Allocator,
     method: HttpMethod,
     uri: []const u8,
-    headers: std.StringHashMap([]const u8),
-    params: std.StringHashMap([]const u8),
+    headers: row.SourceHeaders,
+    params: row.SourceHeaders,
     body: std.ArrayList(u8),
 
     // instantiate from C/interop (using addresses)
     pub fn init(
-        allocator: Allocator,
+        ally: Allocator,
         method: i32,
         uriAddr: WasiAddr,
         uriLen: i32,
@@ -247,23 +268,27 @@ pub const HttpRequest = struct {
         bodyLen: i32,
     ) Self {
         var curi = xdata.init(uriAddr, uriLen);
-        var uri = curi.dupe(allocator);
+        var uri = curi.dupe(ally);
         curi.deinit();
 
-        var body = std.ArrayList(u8).init(allocator);
+        var body = std.ArrayList(u8).init(ally);
         if (bodyEnable == 1) {
             var cbod = xdata.init(bodyAddr, bodyLen);
             body.appendSlice(cbod.ptr[0..cbod.len]) catch {
-                std.debug.panic("FAIL copying body from C addr", .{});
+                @panic("FAIL copying body from C addr");
             };
             cbod.deinit();
         }
 
-        var headers = xmap(allocator, hdrAddr, hdrLen);
-        var params = xmap(allocator, paramAddr, paramLen);
+        var headers = xlist(ally, hdrAddr, hdrLen) catch {
+            @panic("FAIL copying headers from C addr");
+        };
+        var params = xlist(ally, paramAddr, paramLen) catch {
+            @panic("FAIL copying params from C addr");
+        };
 
         return Self{
-            .allocator = allocator,
+            .ally = ally,
             .method = @intCast(HttpMethod, method),
             .uri = uri,
             .headers = headers,
@@ -272,22 +297,11 @@ pub const HttpRequest = struct {
         };
     }
     pub fn deinit(self: *Self) void {
-        if (self.uri.len != 0) self.allocator.free(self.uri);
+        if (self.uri.len != 0) self.ally.free(self.uri);
         self.body.deinit();
-        //TODO free map items
-        self.headers.deinit();
-        self.params.deinit();
+        self.headers.deinit(self.ally);
+        self.params.deinit(self.ally);
     }
-};
-// TODO refactor w mal (in signature_tests)
-pub const WReq = struct {
-    const Self = @This();
-
-    method: HttpMethod,
-    uri: []const u8,
-    headers: row.HeaderList,
-
-    body: std.BoundedArray(u8, 8192),
 };
 
 // C/interop address

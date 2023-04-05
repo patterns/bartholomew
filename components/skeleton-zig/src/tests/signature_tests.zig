@@ -9,39 +9,46 @@ const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
 const debug = std.debug;
+const ally = std.testing.allocator;
 
 test "subheaders read mapping" {
-    var headers = row.HeaderList.init();
-    const raw = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",sub-signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"";
-
+    // simulate raw header values
+    var list = row.SourceHeaders{};
+    try list.append(ally, [2][]const u8{
+        "signature",
+        "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+    });
+    // subheaders wrapper around SegmentedList
+    var subheaders = row.SignatureList.init();
+    try subheaders.preverify(list);
+    //
     // To workaround the enum collision, rewrite the signature subheader field-name.
+    // TODO refactor to handle the subheader type as distinct to avoid hiding
+    //      and forgetting what this is about..... (because we will forget tomorrow)
+    //
 
-    try headers.read(raw);
+    const sh_keyid = subheaders.get(.sub_key_id).value;
+    try expectStr("Test", sh_keyid);
+    const sh_algo = subheaders.get(.sub_algorithm).value;
+    try expectStr("rsa-sha256", sh_algo);
+    const sh_hd = subheaders.get(.sub_headers).value;
+    try expectStr("(request-target) host date", sh_hd);
 
-    const subheader_keyid = headers.get(.sub_key_id).value;
-    try expectStr("Test", subheader_keyid);
-    const subheader_algo = headers.get(.sub_algorithm).value;
-    try expectStr("rsa-sha256", subheader_algo);
-    const subheader_hd = headers.get(.sub_headers).value;
-    try expectStr("(request-target) host date", subheader_hd);
-
-    const subheader_sig = headers.get(.sub_signature).value;
-    const ally = std.testing.allocator;
-    var b64 = std.base64.standard_no_pad.Decoder;
-    const max = try b64.calcSizeForSlice(subheader_sig);
-    var decoded_orig = try ally.alloc(u8, max);
-    var decoded_sub = try ally.alloc(u8, max);
+    const sh_sig = subheaders.get(.sub_signature).value;
+    var b64 = std.base64.standard.Decoder;
+    var decoded_orig: [256]u8 = undefined;
+    var decoded_sub: [256]u8 = undefined;
 
     try b64.decode(
-        decoded_orig,
-        "qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=",
+        &decoded_orig,
+        "NtIKWuXjr4SBEXj97gbick4O95ff378I0CZOa2VnIeEXZ1itzAdqTpSvG91XYrq5CfxCmk8zz1Zg7ZGYD+ngJyVn805r73rh2eFCPO+ZXDs45Is/Ex8srzGC9sfVZfqeEfApRFFe5yXDmANVUwzFWCEnGM6+SJVmWl1/jyEn45qA6Hw+ZDHbrbp6qvD4N0S92jlPyVVEh/SmCwnkeNiBgnbt+E0K5wCFNHPbo4X1Tj406W+bTtnKzaoKxBWKW8aIQ7rg92zqE1oqBRjqtRi5/Q6P5ZYYGGINKzNyV3UjZtxeZNnNJ+MAnWS0mofFqcZHVgSU/1wUzP7MhzOKLca1Yg==",
     );
-    try b64.decode(decoded_sub, subheader_sig);
+    try b64.decode(&decoded_sub, sh_sig);
+
     try std.testing.expectEqual(decoded_orig, decoded_sub);
 }
 
 test "signature base input string" {
-    //const ally = std.testing.allocator;
     var basic_req = try basicRequest();
     //try signature.init( basic_req.headers );
     //const base_input = try signature.baseInput(ally,
@@ -71,38 +78,40 @@ fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKe
     };
 }
 
-fn basicRequest() !*lib.WReq {
-    var headers = row.HeaderList.init();
-    var body = try std.BoundedArray(u8, 8192).init(1024);
-
+fn basicRequest() !*lib.SpinRequest {
     const post: u8 = 1;
     const uri = "/foo?param=value&pet=dog";
-
+    var body = std.ArrayList(u8).init(ally);
     _ = try body.writer().write("{\"hello\": \"world\"}");
-    try headers.add(.{ .cell_type = .host, .label = "host", .value = "example.com" });
-    try headers.add(.{ .cell_type = .date, .label = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try headers.add(.{ .cell_type = .content_type, .label = "content-type", .value = "application/json" });
-    try headers.add(.{ .cell_type = .digest, .label = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try headers.add(.{ .cell_type = .content_length, .label = "content-length", .value = "18" });
-    try headers.add(.{
-        .cell_type = .signature,
-        .label = "signature",
-        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+
+    // simulate raw header values
+    var list = row.SourceHeaders{};
+    try list.append(ally, [2][]const u8{ "host", "example.com" });
+    try list.append(ally, [2][]const u8{ "date", "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try list.append(ally, [2][]const u8{ "content-type", "application/json" });
+    try list.append(ally, [2][]const u8{ "digest", "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try list.append(ally, [2][]const u8{ "content-length", "18" });
+    try list.append(ally, [2][]const u8{
+        "signature",
+        "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     });
-    return newRequest(post, uri, headers, body);
+
+    return newRequest(post, uri, list, body);
 }
 
 fn newRequest(
     method: u8,
     uri: []const u8,
-    headers: row.HeaderList,
-    body: std.BoundedArray(u8, 8192),
-) *lib.WReq {
-    var req = lib.WReq{
+    headers: row.SourceHeaders,
+    body: std.ArrayList(u8),
+) *lib.SpinRequest {
+    var req = lib.SpinRequest{
         .method = method,
         .uri = uri,
         .headers = headers,
         .body = body,
+        .ally = ally,
+        .params = row.SourceHeaders{},
     };
 
     return &req;

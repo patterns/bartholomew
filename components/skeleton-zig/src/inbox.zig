@@ -13,12 +13,12 @@ const Inbox = @This();
 
 const Impl = InboxImpl;
 
-pub fn eval(allocator: Allocator, w: *lib.HttpResponse, r: *lib.HttpRequest) void {
+pub fn eval(allocator: Allocator, w: *lib.HttpResponse, r: *lib.SpinRequest) void {
     Impl.eval(allocator, w, r);
 }
 
 const InboxImpl = struct {
-    fn eval(allocator: Allocator, w: *lib.HttpResponse, req: *lib.HttpRequest) void {
+    fn eval(allocator: Allocator, w: *lib.HttpResponse, req: *lib.SpinRequest) void {
         const bad = unknownSignature(allocator, req) catch true;
 
         if (bad) {
@@ -47,14 +47,15 @@ const InboxImpl = struct {
     }
 };
 
-fn unknownSignature(allocator: Allocator, req: *lib.HttpRequest) !bool {
+fn unknownSignature(allocator: Allocator, req: *lib.SpinRequest) !bool {
     const bad = true;
 
-    //var placeholder: row.HeaderList = undefined;
-    var placeholder = row.HeaderList.init();
+    var placeholder = row.SourceHeaders{};
+    var wrap = row.HeaderList.init();
+
     try signature.init(placeholder);
 
-    const hashed = signature.calculate(allocator, .{ .request = req, .refactorInProgress = placeholder }) catch {
+    const hashed = signature.calculate(allocator, .{ .request = req, .refactorInProgress = wrap }) catch {
         log.err("sha256 recreate failed", .{});
         return bad;
     };

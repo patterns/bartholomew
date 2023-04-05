@@ -28,32 +28,33 @@ pub fn enqueue(allocator: std.mem.Allocator, content: std.json.ValueTree) !void 
 }
 
 // capture extra request detail to debug/tests
-pub fn debugDetail(allocator: std.mem.Allocator, option: anytype) !void {
+pub fn debugDetail(ally: std.mem.Allocator, option: anytype) !void {
     const tree = option.tree;
     const req = option.req;
 
-    var bucket = std.ArrayList(u8).init(allocator);
+    var bucket = std.ArrayList(u8).init(ally);
     defer bucket.deinit();
     try tree.root.jsonStringify(.{}, bucket.writer());
     try bucket.appendSlice("##DEBUG##");
-    var iter = req.headers.iterator();
+    var iter = req.headers.iterator(0);
     while (iter.next()) |entry| {
-        try bucket.writer().print(";{s}#{s}", .{ entry.key_ptr.*, entry.value_ptr.* });
+        const tup: [2][]const u8 = entry.*;
+        try bucket.writer().print(";{s}#{s}", .{ tup[0], tup[1] });
     }
 
     // duplicate payload to sentinel-terminated
-    const cpayload = try allocator.dupeZ(u8, bucket.items);
-    defer allocator.free(cpayload);
+    const cpayload = try ally.dupeZ(u8, bucket.items);
+    defer ally.free(cpayload);
 
     // duplicate id to sentinel-terminated
     const key = tree.root.Object.get("id").?.String;
-    const ckey = try allocator.dupeZ(u8, key);
-    defer allocator.free(ckey);
+    const ckey = try ally.dupeZ(u8, key);
+    defer ally.free(ckey);
 
     // duplicate redis address to sentinel-terminated
     const addr: []const u8 = config.redisAddress() orelse "redis://127.0.0.1:6379";
-    const caddr = try allocator.dupeZ(u8, addr);
-    defer allocator.free(caddr);
+    const caddr = try ally.dupeZ(u8, addr);
+    defer ally.free(caddr);
 
     saveEvent(caddr, ckey, cpayload);
 }
