@@ -161,7 +161,7 @@ fn xlist(ally: Allocator, addr: WasiAddr, rowcount: i32) !row.SourceHeaders {
         var tup = record[rownum];
         const fld = try ally.dupeZ(u8, tup.f0.ptr[0..tup.f0.len]);
         const val = try ally.dupeZ(u8, tup.f1.ptr[0..tup.f1.len]);
-        try list.append(ally, [2][:0]u8{ fld, val });
+        try list.append(ally, .{ .field = fld, .value = val });
 
         // free old kv
         CanonicalAbiFree(@ptrCast(?*anyopaque, tup.f0.ptr), tup.f0.len, 1);

@@ -14,9 +14,9 @@ const ally = std.testing.allocator;
 test "subheaders read mapping" {
     // simulate raw header values
     var list = row.SourceHeaders{};
-    try list.append(ally, [2][]const u8{
-        "signature",
-        "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+    try list.append(ally, .{
+        .field = "signature",
+        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     });
     // subheaders wrapper around SegmentedList
     var subheaders = row.SignatureList.init();
@@ -86,14 +86,14 @@ fn basicRequest() !*lib.SpinRequest {
 
     // simulate raw header values
     var list = row.SourceHeaders{};
-    try list.append(ally, [2][]const u8{ "host", "example.com" });
-    try list.append(ally, [2][]const u8{ "date", "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try list.append(ally, [2][]const u8{ "content-type", "application/json" });
-    try list.append(ally, [2][]const u8{ "digest", "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try list.append(ally, [2][]const u8{ "content-length", "18" });
-    try list.append(ally, [2][]const u8{
-        "signature",
-        "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+    try list.append(ally, .{ .field = "host", .value = "example.com" });
+    try list.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try list.append(ally, .{ .field = "content-type", .value = "application/json" });
+    try list.append(ally, .{ .field = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try list.append(ally, .{ .field = "content-length", .value = "18" });
+    try list.append(ally, .{
+        .field = "signature",
+        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     });
 
     return newRequest(post, uri, list, body);

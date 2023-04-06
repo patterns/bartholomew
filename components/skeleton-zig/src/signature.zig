@@ -24,12 +24,9 @@ var produce: ProduceKeyFn = undefined;
 // SHA256 hash creates digests of 32 bytes.
 const sha256_len: usize = 32;
 
-pub fn init(source: row.SourceHeaders) !void {
-    // We rewrite the subheader 'signature' to 'SUB-SIGNATURE' as a quick&dirty
-    // workaround for now and need to revisit the combined enum set.
-
+pub fn init(raw: row.SourceHeaders) !void {
     impl.map = row.SignatureList.init();
-    try impl.map.preverify(source);
+    try impl.map.preverify(raw);
 }
 
 // user defined steps to retrieve the public key

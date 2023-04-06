@@ -4,42 +4,33 @@ const mem = std.mem;
 const streq = std.ascii.eqlIgnoreCase;
 
 // Purpose: attempt KV pairs (headers/params)
-// (keep the header input text alongside the index/offset and size
-// values needed to locate their positions within the input text;
-// this would let us retain the original headers unaltered while
-// avoiding any new allocations). SO MANY rethinks; the xmap that
-// we wrote to translate headers from the host was already using the
-// StringHashMap. So we need to refactor there which is at the source
-// where we first access the input data for the headers.
-// thinking (20230404), make xmap a secondary option and write a new
-// default xlist using ArrayList/SegmentedList with the assumption that
-// the initial translation from host interop/C will be faster and more
-// space efficient; this list is then "never" modified but instead
-// tapped for the data in some wrapping key-lookup "cache" that is
-// the interface to readers.
+
 // Since the total size of headers is restricted to 8K by servers
 // (consensus according to search results), we need to have our
 // implementation of headers complain loudly when we reach the max
 // in order to decide whether we need to revisit.....
 
-// wrapper around raw headers SegmentedList
+// wrapper around raw headers
 pub const HeaderList = Rows();
-// wrapper around raw subheaders SegmentedList
+// wrapper around raw subheaders
 pub const SignatureList = Rows();
-// shorthand for raw headers SegmentedList
-pub const SourceHeaders = std.SegmentedList([2][]const u8, 32);
+// shorthand for raw headers
+pub const SourceHeaders = std.MultiArrayList(struct {
+    field: [:0]const u8,
+    value: [:0]const u8,
+});
 
-// rows provides convenience routines over the (raw) headers
+// convenience layer around (raw) headers
 pub fn Rows() type {
     return struct {
         const Self = @This();
-        cells: std.EnumArray(CellType, Cell),
-        source: []const u8,
+        cells: std.EnumArray(CellType, Header),
+        source: SourceHeaders,
 
         pub fn init() Self {
             return Self{
-                .cells = std.EnumArray(CellType, Cell).initUndefined(),
-                .source = "",
+                .cells = std.EnumArray(CellType, Header).initUndefined(),
+                .source = undefined,
             };
         }
         pub fn deinit(self: *Self) void {
@@ -49,91 +40,118 @@ pub fn Rows() type {
             }
         }
 
-        pub fn get(self: Self, ct: CellType) Cell {
+        pub fn get(self: Self, ct: CellType) struct {
+            kind: CellType,
+            value: []const u8,
+            descr: []const u8,
+        } {
+            const hdr = self.cells.get(ct);
             // check whether the enum is a set member
-            const c = self.cells.get(ct);
-            if (c.kind == undefined) {
+            if (hdr.kind == undefined) {
                 // zero fields
-                return Cell.init(ct, "");
+                return .{ .kind = ct, .value = "", .descr = "" };
             }
+            var val: []const u8 = undefined;
+            var fld: []const u8 = undefined;
+            switch (ct) {
+                .sub_algorithm, .sub_headers, .sub_key_id, .sub_signature => {
+                    // access subheaders by slice
+                    const root = self.signatureEntry();
+                    std.debug.assert(root.len != 0);
+                    const v_len = hdr.val_pos + hdr.val_len;
+                    const f_len = hdr.fld_pos + hdr.fld_len;
+                    val = root[hdr.val_pos..v_len];
+                    fld = root[hdr.fld_pos..f_len];
+                },
 
-            // TODO look up offset by using enum to key into cells map
-            //      then the cell has the offset and size which
-            //      tell the position of the field within the source
-            //      array.
-            //return self.cells.get(ct);
-            return c;
+                else => {
+                    // access headers by index of mal
+                    const tup = self.source.get(hdr.fld_pos);
+                    val = tup.value;
+                    fld = tup.field;
+                },
+            }
+            return .{ .kind = ct, .value = val, .descr = fld };
         }
 
         // extract signature subheaders
         pub fn preverify(self: *Self, raw: SourceHeaders) !void {
-            // find the signature (cavage draft12)
-            var root: []const u8 = undefined;
-            var it = raw.constIterator(0);
-            while (it.next()) |hd| {
-                const tup = hd.*;
-                if (streq("signature", tup[0])) {
-                    root = tup[1];
-                    break;
-                }
-            }
+            self.source = raw;
+            //const src = self.source;
+            //var root: []const u8 = undefined;
+            //for (src.items(.field), src.items(.value)) |field, value| {
+            //    if (streq("signature", field)) {
+            // found signature (cavage draft12)
+            //        root = value;
+            //        break;
+            //    }
+            //}
+            const root = self.signatureEntry();
             std.debug.assert(root.len != 0);
             //if (root == undefined) @panic("Missing signature header (maybe diff spec)");
-            self.source = root;
 
-            // TODO scan the text and map the offsets
-            //
-            var arr = try std.BoundedArray(Cell, 64).init(12);
+            var arr = try std.BoundedArray(Header, 64).init(12);
             // expect field1="val1",field2="val2"
             try scanCommas(&arr, root);
-            // traverse and assign cell to row
-            while (arr.popOrNull()) |sub_header| {
-                const c_type = sub_header.kind;
-                self.cells.set(c_type, sub_header);
+            while (arr.popOrNull()) |sub_hdr| {
+                self.cells.set(sub_hdr.kind, sub_hdr);
             }
         }
 
-        // (headers) abstraction layer around SegmentedList
-        pub fn index(self: *Self, source: SourceHeaders) void {
-            var it = source.constIterator(0);
-            while (it.next()) |header| {
-                const tup = header.*;
-                const c_type = CellType.atoCell(tup[0]);
-                var cell = Cell.init(c_type, tup[1]);
-                self.cells.set(c_type, cell);
+        // sort raw headers into structured data
+        pub fn index(self: *Self, raw: SourceHeaders) void {
+            self.source = raw;
+            const src = self.source;
+            for (src.items(.field), src.items(.value), 0..) |field, value, rownum| {
+                const kind = CellType.atoMember(field);
+                self.cells.set(kind, Header{
+                    .kind = kind,
+                    .fld_pos = rownum,
+                    .fld_len = field.len,
+                    .val_pos = rownum,
+                    .val_len = value.len,
+                });
             }
+        }
+
+        // retrieve the signature from raw headers
+        fn signatureEntry(self: Self) []const u8 {
+            const src = self.source;
+            var root: []const u8 = undefined;
+            for (src.items(.field), src.items(.value)) |field, value| {
+                if (streq("signature", field)) {
+                    // found signature (cavage draft12)
+                    root = value;
+                    break;
+                }
+            }
+            return root;
         }
     };
     // TODO need a check that answers whether _required_ elements are present
 }
 
-// cell is one entry in the row
-pub const Cell = struct {
-    // TODO a cell-type 'other' can land on 1+ values
-    //      (maybe keep a linked-list just for that cell-type)
-    //      which would mean a flag "has_siblings" or "can_have_siblings"
-
-    const Self = @This();
+// header entry
+pub const Header = struct {
     kind: CellType,
-    value: []const u8,
+    //value: []const u8,
+    //description: []const u8,
+    fld_pos: usize,
+    fld_len: usize,
+    val_pos: usize,
+    val_len: usize,
 
-    pub fn init(ct: CellType, value: []const u8) Self {
-        return Self{
-            .kind = ct,
-            .value = value,
-        };
-    }
-
-    // helper to shape input
-    pub fn update(self: *Self, value: []const u8, field: []const u8) void {
+    // TODO helper to shape input
+    pub fn update(self: *Header, field: []const u8) void {
         // cell-type may be initialized earlier
-        if (self.kind == undefined or self.kind == .other) {
+        if (self.kind == undefined or self.kind == .user_defined) {
             // if not, need to "derive" cell-type from field
-            self.kind = CellType.atoCell(field);
+            self.kind = CellType.atoMember(field);
         }
 
         // TODO verify that we are mem.copy correctly
-        self.value = value;
+        //self.value = value;
+        //self.description = field;
     }
 };
 
@@ -150,7 +168,10 @@ pub const CellType = enum(u32) {
     sub_headers,
     sub_key_id,
     sub_signature,
-    other,
+    user_defined,
+    // TODO member type user_defined can land on 1+ values
+    //      (maybe keep a linked-list just for that member type)
+    //      which would mean a flag "has_siblings" or "can_have_siblings"
 
     // lookup table with the name/label
     pub const CellNameTable = [@typeInfo(CellType).Enum.fields.len][:0]const u8{
@@ -165,40 +186,53 @@ pub const CellType = enum(u32) {
         "headers",
         "keyid",
         "SUB-SIGNATURE",
-        "other",
+        "user-defined",
     };
 
-    // name/label format of the enum type
+    // name/label format of the enum
     pub fn name(self: CellType) [:0]const u8 {
         return CellNameTable[@enumToInt(self)];
     }
 
-    // convert to enum type
-    pub fn atoCell(lookup: []const u8) CellType {
+    // convert to enum
+    pub fn atoMember(lookup: []const u8) CellType {
         for (CellNameTable, 0..) |row, index| {
             if (streq(row, lookup)) {
                 return @intToEnum(CellType, index);
             }
         }
-        return .other;
+        return .user_defined;
     }
 };
 
-fn scanCommas(arr: *std.BoundedArray(Cell, 64), data: []const u8) !void {
+fn scanCommas(arr: *std.BoundedArray(Header, 64), root: []const u8) !void {
     // expect field1=val1<delim>field2=val2
-    // tokenize stream by comma (,)
-    var iter = mem.tokenize(u8, data, ",");
 
-    var field: [128:0]u8 = undefined;
-    var value: [1024:0]u8 = undefined;
+    var iter = mem.tokenize(u8, root, ",");
+    var pos: usize = 0;
 
     while (iter.next()) |segment| {
-        field = mem.zeroes([128:0]u8);
-        value = mem.zeroes([1024:0]u8);
-        try extractField(segment, &field, &value);
-        var cell: Cell = undefined;
-        cell.update(&value, &field);
-        try arr.append(cell);
+        //const delim_eq = mem.indexOf(u8, segment, "=");
+        if (mem.indexOf(u8, segment, "=")) |delim| {
+            const f_start = pos;
+            const f_len = delim - pos;
+            const v_start = delim + 1;
+            const v_len = segment.len - delim - 1;
+            const field = segment[f_start..(f_start + f_len)];
+            const kind = CellType.atoMember(field);
+
+            var hd = Header{
+                .kind = kind,
+                .fld_pos = f_start,
+                .fld_len = f_len,
+                .val_pos = v_start,
+                .val_len = v_len,
+            };
+            try arr.append(hd);
+            pos = pos + segment.len + 1;
+        } else {
+            break;
+        }
     }
 }
 
@@ -234,14 +268,14 @@ fn extractField(remain: []const u8, field: []u8, value: []u8) !void {
 
 const expectStr = std.testing.expectEqualStrings;
 const ally = std.testing.allocator;
-test "wrapper around raw headers SegmentedList" {
+test "wrapper around raw headers " {
     // simulate raw header values
     var list = SourceHeaders{};
-    try list.append(ally, [2][]const u8{ "host", "example.com" });
-    try list.append(ally, [2][]const u8{ "date", "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try list.append(ally, [2][]const u8{ "content-type", "application/json" });
-    try list.append(ally, [2][]const u8{ "digest", "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try list.append(ally, [2][]const u8{ "content-length", "18" });
+    try list.append(ally, .{ .field = "host", .value = "example.com" });
+    try list.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try list.append(ally, .{ .field = "content-type", .value = "application/json" });
+    try list.append(ally, .{ .field = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try list.append(ally, .{ .field = "content-length", .value = "18" });
 
     // headers wrapper around SegmentedList
     var headers = HeaderList.init();

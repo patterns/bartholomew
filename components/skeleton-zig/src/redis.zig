@@ -36,10 +36,10 @@ pub fn debugDetail(ally: std.mem.Allocator, option: anytype) !void {
     defer bucket.deinit();
     try tree.root.jsonStringify(.{}, bucket.writer());
     try bucket.appendSlice("##DEBUG##");
-    var iter = req.headers.iterator(0);
-    while (iter.next()) |entry| {
-        const tup: [2][]const u8 = entry.*;
-        try bucket.writer().print(";{s}#{s}", .{ tup[0], tup[1] });
+
+    const src = req.headers;
+    for (src.items(.field), src.items(.value)) |field, value| {
+        try bucket.writer().print(";{s}#{s}", .{ field, value });
     }
 
     // duplicate payload to sentinel-terminated
