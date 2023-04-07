@@ -24,9 +24,9 @@ var produce: ProduceKeyFn = undefined;
 // SHA256 hash creates digests of 32 bytes.
 const sha256_len: usize = 32;
 
-pub fn init(raw: row.SourceHeaders) !void {
-    impl.map = row.SignatureList.init();
-    try impl.map.preverify(raw);
+pub fn init(ally: Allocator, raw: row.SourceHeaders) !void {
+    impl.map = row.SignatureList.init(ally, raw);
+    try impl.map.preverify();
 }
 
 // user defined steps to retrieve the public key

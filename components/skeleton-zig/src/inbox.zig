@@ -51,9 +51,9 @@ fn unknownSignature(allocator: Allocator, req: *lib.SpinRequest) !bool {
     const bad = true;
 
     var placeholder = row.SourceHeaders{};
-    var wrap = row.HeaderList.init();
+    var wrap = row.HeaderList.init(allocator, placeholder);
 
-    try signature.init(placeholder);
+    try signature.init(allocator, placeholder);
 
     const hashed = signature.calculate(allocator, .{ .request = req, .refactorInProgress = wrap }) catch {
         log.err("sha256 recreate failed", .{});

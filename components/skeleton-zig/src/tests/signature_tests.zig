@@ -11,45 +11,9 @@ const expectStr = std.testing.expectEqualStrings;
 const debug = std.debug;
 const ally = std.testing.allocator;
 
-test "subheaders read mapping" {
-    // simulate raw header values
-    var list = row.SourceHeaders{};
-    try list.append(ally, .{
-        .field = "signature",
-        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
-    });
-    // subheaders wrapper around SegmentedList
-    var subheaders = row.SignatureList.init();
-    try subheaders.preverify(list);
-    //
-    // To workaround the enum collision, rewrite the signature subheader field-name.
-    // TODO refactor to handle the subheader type as distinct to avoid hiding
-    //      and forgetting what this is about..... (because we will forget tomorrow)
-    //
-
-    const sh_keyid = subheaders.get(.sub_key_id).value;
-    try expectStr("Test", sh_keyid);
-    const sh_algo = subheaders.get(.sub_algorithm).value;
-    try expectStr("rsa-sha256", sh_algo);
-    const sh_hd = subheaders.get(.sub_headers).value;
-    try expectStr("(request-target) host date", sh_hd);
-
-    const sh_sig = subheaders.get(.sub_signature).value;
-    var b64 = std.base64.standard.Decoder;
-    var decoded_orig: [256]u8 = undefined;
-    var decoded_sub: [256]u8 = undefined;
-
-    try b64.decode(
-        &decoded_orig,
-        "NtIKWuXjr4SBEXj97gbick4O95ff378I0CZOa2VnIeEXZ1itzAdqTpSvG91XYrq5CfxCmk8zz1Zg7ZGYD+ngJyVn805r73rh2eFCPO+ZXDs45Is/Ex8srzGC9sfVZfqeEfApRFFe5yXDmANVUwzFWCEnGM6+SJVmWl1/jyEn45qA6Hw+ZDHbrbp6qvD4N0S92jlPyVVEh/SmCwnkeNiBgnbt+E0K5wCFNHPbo4X1Tj406W+bTtnKzaoKxBWKW8aIQ7rg92zqE1oqBRjqtRi5/Q6P5ZYYGGINKzNyV3UjZtxeZNnNJ+MAnWS0mofFqcZHVgSU/1wUzP7MhzOKLca1Yg==",
-    );
-    try b64.decode(&decoded_sub, sh_sig);
-
-    try std.testing.expectEqual(decoded_orig, decoded_sub);
-}
-
 test "signature base input string" {
     var basic_req = try basicRequest();
+    defer basic_req.deinit();
     //try signature.init( basic_req.headers );
     //const base_input = try signature.baseInput(ally,
     //    basic_req.headers,

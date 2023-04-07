@@ -267,6 +267,7 @@ pub const SpinRequest = struct {
         bodyAddr: WasiAddr,
         bodyLen: i32,
     ) Self {
+        // TODO is this copy clean?
         var curi = xdata.init(uriAddr, uriLen);
         var uri = curi.dupe(ally);
         curi.deinit();
@@ -297,8 +298,8 @@ pub const SpinRequest = struct {
         };
     }
     pub fn deinit(self: *Self) void {
-        if (self.uri.len != 0) self.ally.free(self.uri);
-        self.body.deinit();
+        // TODO bus error (maybe refactor to non-allocating for now)
+        //self.body.deinit();
         self.headers.deinit(self.ally);
         self.params.deinit(self.ally);
     }
