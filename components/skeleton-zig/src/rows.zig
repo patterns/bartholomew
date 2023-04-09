@@ -113,14 +113,12 @@ pub fn Rows() type {
         // retrieve the signature from raw headers
         fn signatureEntry(self: Self) []const u8 {
             const raw = self.source;
-            var root: []const u8 = undefined;
             for (raw.items(.field), raw.items(.value)) |field, value| {
                 if (streq("signature", field)) {
-                    root = value;
-                    break;
+                    return value;
                 }
             }
-            return root;
+            return "";
         }
     };
     // TODO need a check that answers whether _required_ elements are present
@@ -192,56 +190,38 @@ pub const Kind = enum(u32) {
 // accept the signature subheader, return list containing offsets to field values
 fn draft12Fields(arr: *std.BoundedArray(Header, 64), root: []const u8) !void {
     var start_index: usize = 0;
-    var lookup: []const u8 = undefined;
-    var f_start: usize = 0;
-    var v_start: usize = 0;
-    var f_len: usize = 0;
-    var v_len: usize = 0;
 
+    // expect 'segment1<delim-comma>segment2'
     while (mem.indexOfPos(u8, root, start_index, ",")) |mark| {
         // mark is the segment end position
-        f_start = start_index;
-        const pos = mem.indexOfPos(u8, root, start_index, "=");
-        if (pos == null) return error.SignatureFieldFormat;
-        // pos separates field and value
-        f_len = pos.? - start_index;
-        v_start = pos.? + 1;
-        v_len = mark - v_start;
-
-        lookup = root[f_start..(f_start + f_len)];
-        if (streq("signature", lookup)) {
-            // work-around enum collision
-            lookup = "SUB-SIGNATURE";
-        }
-        const kind = Kind.fromDescr(lookup);
-        var hd = Header{
-            .kind = kind,
-            .fld_pos = f_start,
-            .fld_len = f_len,
-            .val_pos = v_start,
-            .val_len = v_len,
-            .debug_field = lookup,
-            .debug_value = root[v_start..(v_start + v_len)],
-        };
-        try arr.append(hd);
+        try subheaderOffsets(arr, root, start_index, mark);
         // next segment starts
         start_index = mark + 1;
     }
     std.debug.assert(start_index != 0);
-    // possible that only one segment so comma is unecessary
-    // (ecept can a valid signature only have one field)
+    // possibility that only one segment so comma was not present
+    // (except can a valid signature only have one field, not really)
 
     // calc last field, where terminator comma would be end of string
     const end_mark = root.len;
-    f_start = start_index;
+    try subheaderOffsets(arr, root, start_index, end_mark);
+}
+
+fn subheaderOffsets(
+    arr: *std.BoundedArray(Header, 64),
+    root: []const u8,
+    start_index: usize,
+    mark: usize,
+) !void {
+    const f_start = start_index;
     const pos = mem.indexOfPos(u8, root, start_index, "=");
     if (pos == null) return error.SignatureFieldFormat;
     // pos separates field and value
-    f_len = pos.? - start_index;
-    v_start = pos.? + 1;
-    v_len = end_mark - v_start;
+    const f_len = pos.? - start_index;
+    const v_start = pos.? + 1;
+    const v_len = mark - v_start;
 
-    lookup = root[f_start..(f_start + f_len)];
+    var lookup = root[f_start..(f_start + f_len)];
     if (streq("signature", lookup)) {
         // work-around enum collision
         lookup = "SUB-SIGNATURE";
@@ -258,63 +238,22 @@ fn draft12Fields(arr: *std.BoundedArray(Header, 64), root: []const u8) !void {
     };
     try arr.append(hd);
 }
-fn scanCommas(arr: *std.BoundedArray(Header, 64), root: []const u8) !void {
-    // expect 'segment1<delim-comma>segment2'
-    var it = mem.tokenize(u8, root, ",");
-    var pos: usize = 0;
-
-    while (it.next()) |segment| {
-        // segment has the form 'field1<delim-eq>"val1"'
-        // (where val1 can contain equal signs)
-        if (!mem.containsAtLeast(u8, segment, 1, "=\"")) break;
-        var delim = mem.indexOf(u8, segment, "=\"");
-        if (delim == null) unreachable;
-        const mark = delim.?;
-
-        const f_start = pos;
-        const f_len = mark;
-        const v_start = mark + 1;
-        const v_len = segment.len - mark - 1;
-
-        // advance the cursor
-        pos = pos + segment.len + 2;
-
-        var lookup = root[f_start..(f_start + f_len)];
-        if (streq("signature", lookup)) {
-            // work-around enum collision
-            lookup = "SUB-SIGNATURE";
-        }
-        const kind = Kind.fromDescr(lookup);
-
-        var hd = Header{
-            .kind = kind,
-            .fld_pos = f_start,
-            .fld_len = f_len,
-            .val_pos = v_start,
-            .val_len = v_len,
-            .debug_field = lookup,
-            .debug_value = root[v_start..(v_start + v_len)],
-        };
-
-        try arr.append(hd);
-    }
-}
 
 const expectStr = std.testing.expectEqualStrings;
 
 test "wrapper around raw headers " {
     const ally = std.testing.allocator;
     // simulate raw header values
-    var list = SourceHeaders{};
-    defer list.deinit(ally);
-    try list.append(ally, .{ .field = "host", .value = "example.com" });
-    try list.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try list.append(ally, .{ .field = "content-type", .value = "application/json" });
-    try list.append(ally, .{ .field = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try list.append(ally, .{ .field = "content-length", .value = "18" });
+    var raw = SourceHeaders{};
+    defer raw.deinit(ally);
+    try raw.append(ally, .{ .field = "host", .value = "example.com" });
+    try raw.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
+    try raw.append(ally, .{ .field = "content-type", .value = "application/json" });
+    try raw.append(ally, .{ .field = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
+    try raw.append(ally, .{ .field = "content-length", .value = "18" });
 
     // wrap raw headers
-    var headers = HeaderList.init(ally, list);
+    var headers = HeaderList.init(ally, raw);
     defer headers.deinit();
     try headers.catalog();
 
