@@ -4,12 +4,17 @@ const log = std.log;
 const Allocator = mem.Allocator;
 
 // convenience routine for transforming request body into JSON tree
-pub fn toTree(allocator: Allocator, ls: std.ArrayList(u8)) error{Malformed}!std.json.ValueTree {
-    const sane_json = std.json.validate(ls.items);
+pub fn toTree(ally: Allocator, ls: *std.io.FixedBufferStream([]u8)) !std.json.ValueTree {
+    var rd = ls.reader();
+    // TODO not using stream and assuming small body
+    var bb = try rd.readBoundedBytes(1024);
+    const body = bb.constSlice();
+
+    const sane_json = std.json.validate(body);
     if (!sane_json) return error.Malformed;
-    var parser = std.json.Parser.init(allocator, false);
+    var parser = std.json.Parser.init(ally, false);
     defer parser.deinit();
-    var tree = parser.parse(ls.items) catch return error.Malformed;
+    var tree = parser.parse(body) catch return error.Malformed;
     return tree;
 }
 

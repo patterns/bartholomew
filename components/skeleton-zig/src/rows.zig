@@ -14,8 +14,8 @@ const streq = std.ascii.eqlIgnoreCase;
 pub const HeaderList = Rows();
 // wrapper around raw subheaders
 pub const SignatureList = Rows();
-// shorthand for raw headers
-pub const SourceHeaders = std.MultiArrayList(struct {
+// TODO shorthand for raw headers
+pub const RawHeaders = std.MultiArrayList(struct {
     field: [:0]const u8,
     value: [:0]const u8,
 });
@@ -24,15 +24,12 @@ pub const SourceHeaders = std.MultiArrayList(struct {
 pub fn Rows() type {
     return struct {
         const Self = @This();
-        source: SourceHeaders,
-        //cells: std.EnumArray(Kind, Header),
+        source: RawHeaders,
         cells: std.AutoHashMap(Kind, Header),
 
-        pub fn init(ally: std.mem.Allocator, raw: SourceHeaders) Self {
+        pub fn init(ally: std.mem.Allocator, raw: RawHeaders) Self {
             return Self{
                 .source = raw,
-                //.cells = std.EnumArray(Kind, Header).initUndefined(),
-                // TODO does undefined mean we need to assign the keys explicitly?
                 .cells = std.AutoHashMap(Kind, Header).init(ally),
             };
         }
@@ -79,12 +76,12 @@ pub fn Rows() type {
             return .{ .kind = ct, .value = val, .descr = fld };
         }
 
-        // extract signature subheader items
+        // extract signature subheader fields
         pub fn preverify(self: *Self) !void {
             const root = self.signatureEntry();
             std.debug.assert(root.len != 0);
 
-            // TODO bounded array should be segmentedList? (better append/pop)
+            // TODO should be segmentedList? (better append/pop)
             var arr = try std.BoundedArray(Header, 64).init(12);
 
             try draft12Fields(&arr, root);
@@ -104,8 +101,6 @@ pub fn Rows() type {
                     .fld_len = field.len,
                     .val_pos = rownum,
                     .val_len = value.len,
-                    .debug_field = "",
-                    .debug_value = "",
                 });
             }
         }
@@ -125,18 +120,16 @@ pub fn Rows() type {
 }
 
 // header entry
-pub const Header = struct {
+pub const Header = packed struct {
     kind: Kind,
     fld_pos: usize,
     fld_len: usize,
     val_pos: usize,
     val_len: usize,
-    debug_field: []const u8,
-    debug_value: []const u8,
 };
 
 // sub/header set membership
-pub const Kind = enum(u32) {
+pub const Kind = enum(u8) {
     authorization,
     content_type,
     content_length,
@@ -187,7 +180,7 @@ pub const Kind = enum(u32) {
     }
 };
 
-// accept the signature subheader, return list containing offsets to field values
+// accept the signature subheader, return list containing offsets to fields
 fn draft12Fields(arr: *std.BoundedArray(Header, 64), root: []const u8) !void {
     var start_index: usize = 0;
 
@@ -207,6 +200,7 @@ fn draft12Fields(arr: *std.BoundedArray(Header, 64), root: []const u8) !void {
     try subheaderOffsets(arr, root, start_index, end_mark);
 }
 
+// calculate the offsets of a field within the signature
 fn subheaderOffsets(
     arr: *std.BoundedArray(Header, 64),
     root: []const u8,
@@ -233,8 +227,6 @@ fn subheaderOffsets(
         .fld_len = f_len,
         .val_pos = v_start,
         .val_len = v_len,
-        .debug_field = lookup,
-        .debug_value = root[v_start..(v_start + v_len)],
     };
     try arr.append(hd);
 }
@@ -244,7 +236,7 @@ const expectStr = std.testing.expectEqualStrings;
 test "wrapper around raw headers " {
     const ally = std.testing.allocator;
     // simulate raw header values
-    var raw = SourceHeaders{};
+    var raw = RawHeaders{};
     defer raw.deinit(ally);
     try raw.append(ally, .{ .field = "host", .value = "example.com" });
     try raw.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
@@ -273,7 +265,7 @@ test "wrapper around raw headers " {
 test "extraction of signature subheaders" {
     const ally = std.testing.allocator;
     // simulate raw header values
-    var raw = SourceHeaders{};
+    var raw = RawHeaders{};
     defer raw.deinit(ally);
     try raw.append(ally, .{
         .field = "signature",

@@ -3,8 +3,10 @@ const std = @import("std");
 //const actor = @import("actor.zig");
 //const outbox = @import("outbox.zig");
 const inbox = @import("inbox.zig");
-const row = @import("rows.zig");
 const Allocator = std.mem.Allocator;
+
+// TODO organize imports
+const row = @import("rows.zig");
 
 //TODO think interface
 pub const EvalFn = *const fn (a: Allocator, w: *HttpResponse, r: *SpinRequest) void;
@@ -23,13 +25,12 @@ fn GuestHttpStart(
     arg_bodyAddr: WasiAddr,
     arg_bodyLen: i32,
 ) callconv(.C) WasiAddr {
-    //const allocator = std.heap.wasm_allocator;
     var arena = std.heap.ArenaAllocator.init(std.heap.wasm_allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
+    const ally = arena.allocator();
 
     var request = SpinRequest.init(
-        allocator,
+        ally,
         arg_method,
         arg_uriAddr,
         arg_uriLen,
@@ -41,9 +42,9 @@ fn GuestHttpStart(
         arg_bodyAddr,
         arg_bodyLen,
     );
-    defer request.deinit();
-    var response = HttpResponse.init(allocator);
-    defer response.deinit();
+    ////defer request.deinit();
+    var response = HttpResponse.init(ally);
+    ////defer response.deinit();
 
     //TODO use comptime to have compiler catch problems
     //script.init(.{.attach = script.AttachOption.vanilla});
@@ -51,7 +52,7 @@ fn GuestHttpStart(
     //webfinger.eval(allocator, &response, &request);
     //actor.eval(allocator, &response, &request);
     //outbox.eval(allocator, &response, &request);
-    inbox.eval(allocator, &response, &request);
+    inbox.eval(ally, &response, &request);
 
     // address of memory shared to the C/host
     var re: WasiAddr = @intCast(WasiAddr, @ptrToInt(&RET_AREA));
@@ -59,7 +60,7 @@ fn GuestHttpStart(
     @intToPtr([*c]i16, @intCast(usize, re)).* = @intCast(i16, response.status);
     // copy headers to shared mem
     if (response.headers.count() != 0) {
-        var ar = response.headers_as_array(allocator).items;
+        var ar = response.headers_as_array(ally).items;
         @intToPtr([*c]i8, @intCast(usize, re + 4)).* = 1;
         @intToPtr([*c]i32, @intCast(usize, re + 12)).* = @bitCast(i32, ar.len);
         @intToPtr([*c]i32, @intCast(usize, re + 8)).* = @intCast(i32, @ptrToInt(ar.ptr));
@@ -68,7 +69,7 @@ fn GuestHttpStart(
     }
     // copy body to shared mem
     if (response.body.items.len != 0) {
-        var cp = allocator.dupe(u8, response.body.items) catch {
+        var cp = ally.dupe(u8, response.body.items) catch {
             @panic("FAIL response OutOfMem");
         };
         @intToPtr([*c]i8, @intCast(usize, re + 16)).* = 1;
@@ -152,10 +153,10 @@ const xdata = struct {
 };
 
 // list conversion from C arrays
-fn xlist(ally: Allocator, addr: WasiAddr, rowcount: i32) !row.SourceHeaders {
+fn xlist(ally: Allocator, addr: WasiAddr, rowcount: i32) !row.RawHeaders {
     var record = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
     const max = @intCast(usize, rowcount);
-    var list = row.SourceHeaders{};
+    var list = row.RawHeaders{};
     var rownum: usize = 0;
     while (rownum < max) : (rownum +%= 1) {
         var tup = record[rownum];
@@ -236,6 +237,7 @@ pub const HttpResponse = struct {
         }
         return arr;
     }
+    // TODO should ownership be taken from arena when transfering to host domain
     pub fn deinit(self: *Self) void {
         //TODO free map items
         self.headers.deinit();
@@ -249,9 +251,9 @@ pub const SpinRequest = struct {
     ally: Allocator,
     method: HttpMethod,
     uri: []const u8,
-    headers: row.SourceHeaders,
-    params: row.SourceHeaders,
-    body: std.ArrayList(u8),
+    headers: row.RawHeaders,
+    params: row.RawHeaders,
+    body: *std.io.FixedBufferStream([]u8),
 
     // instantiate from C/interop (using addresses)
     pub fn init(
@@ -269,40 +271,42 @@ pub const SpinRequest = struct {
     ) Self {
         // TODO is this copy clean?
         var curi = xdata.init(uriAddr, uriLen);
-        var uri = curi.dupe(ally);
+        var req_uri = curi.dupe(ally);
         curi.deinit();
 
-        var body = std.ArrayList(u8).init(ally);
+        var content_body: std.io.FixedBufferStream([]u8) = undefined;
         if (bodyEnable == 1) {
             var cbod = xdata.init(bodyAddr, bodyLen);
-            body.appendSlice(cbod.ptr[0..cbod.len]) catch {
-                @panic("FAIL copying body from C addr");
-            };
-            cbod.deinit();
+            content_body = std.io.fixedBufferStream(cbod.ptr[0..cbod.len]);
+            //content_body.appendSlice(ally, cbod.ptr[0..cbod.len]) catch {
+            //    @panic("FAIL copying body from C addr");
+            //};
+            //cbod.deinit();
         }
 
-        var headers = xlist(ally, hdrAddr, hdrLen) catch {
+        var req_headers = xlist(ally, hdrAddr, hdrLen) catch {
             @panic("FAIL copying headers from C addr");
         };
-        var params = xlist(ally, paramAddr, paramLen) catch {
+        var qry_params = xlist(ally, paramAddr, paramLen) catch {
             @panic("FAIL copying params from C addr");
         };
 
         return Self{
             .ally = ally,
             .method = @intCast(HttpMethod, method),
-            .uri = uri,
-            .headers = headers,
-            .params = params,
-            .body = body,
+            .uri = req_uri,
+            .headers = req_headers,
+            .params = qry_params,
+            .body = &content_body,
         };
     }
-    pub fn deinit(self: *Self) void {
-        // TODO bus error (maybe refactor to non-allocating for now)
-        //self.body.deinit();
-        self.headers.deinit(self.ally);
-        self.params.deinit(self.ally);
-    }
+    // TODO relying on arena to free at the end
+    //pub fn deinit(self: *Self) void {
+    // TODO bus error (maybe refactor to non-allocating for now)
+    ////self.body.deinit(self.ally);
+    ////self.headers.deinit(self.ally);
+    ////self.params.deinit(self.ally);
+    //}
 };
 
 // C/interop address

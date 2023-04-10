@@ -2,38 +2,46 @@ const std = @import("std");
 
 const lib = @import("../lib.zig");
 const signature = @import("../signature.zig");
+// TODO organize imports
 const row = @import("../rows.zig");
 const Allocator = std.mem.Allocator;
 const ed25519 = std.crypto.sign.Ed25519;
 const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
-const debug = std.debug;
-const ally = std.testing.allocator;
 
 test "signature base input string" {
-    var basic_req = try basicRequest();
-    defer basic_req.deinit();
-    //try signature.init( basic_req.headers );
-    //const base_input = try signature.baseInput(ally,
-    //    basic_req.headers,
-    //    basic_req.method,
-    //    basic_req.uri,
-    //);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
 
-    debug.print("debug {d}\n", .{basic_req.method});
-    return error.SkipZigTest;
-    //try expectStr(
-    //    "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT",
-    //    base_input,
-    //);
+    // simulate request
+    var basic_req = try basicRequest(ally);
+    // wrap raw headers
+    var wrap = row.HeaderList.init(ally, basic_req.headers);
+    defer wrap.deinit();
+    try wrap.catalog();
+
+    try signature.init(ally, basic_req.headers);
+    const base_input = try signature.baseInput(
+        ally,
+        wrap,
+        basic_req.method,
+        basic_req.uri,
+    );
+
+    try expectStr(
+        "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT",
+        base_input,
+    );
+    //return error.SkipZigTest;
 }
 
 //const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
 fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKey {
     _ = proxy;
     const key = signature.fromPEM(allocator, pub_key_pem) catch |err| {
-        debug.panic("PEM decode failed, {!}", .{err});
+        std.debug.panic("PEM decode failed, {!}", .{err});
     };
 
     return signature.PublicKey{
@@ -42,14 +50,15 @@ fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKe
     };
 }
 
-fn basicRequest() !*lib.SpinRequest {
+fn basicRequest(ally: Allocator) !*lib.SpinRequest {
     const post: u8 = 1;
     const uri = "/foo?param=value&pet=dog";
-    var body = std.ArrayList(u8).init(ally);
-    _ = try body.writer().write("{\"hello\": \"world\"}");
+    var arr = "{\"hello\": \"world\"}".*;
+    var buf: []u8 = &arr;
+    var body = std.io.fixedBufferStream(buf);
 
-    // simulate raw header values
-    var list = row.SourceHeaders{};
+    // simulate raw header fields
+    var list = row.RawHeaders{};
     try list.append(ally, .{ .field = "host", .value = "example.com" });
     try list.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
     try list.append(ally, .{ .field = "content-type", .value = "application/json" });
@@ -60,22 +69,23 @@ fn basicRequest() !*lib.SpinRequest {
         .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     });
 
-    return newRequest(post, uri, list, body);
+    return newRequest(ally, post, uri, list, &body);
 }
 
 fn newRequest(
+    ally: Allocator,
     method: u8,
     uri: []const u8,
-    headers: row.SourceHeaders,
-    body: std.ArrayList(u8),
+    headers: row.RawHeaders,
+    body: *std.io.FixedBufferStream([]u8),
 ) *lib.SpinRequest {
     var req = lib.SpinRequest{
+        .ally = ally,
         .method = method,
         .uri = uri,
         .headers = headers,
         .body = body,
-        .ally = ally,
-        .params = row.SourceHeaders{},
+        .params = row.RawHeaders{},
     };
 
     return &req;

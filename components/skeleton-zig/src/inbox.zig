@@ -5,6 +5,7 @@ const status = @import("status.zig");
 const config = @import("config.zig");
 const redis = @import("redis.zig");
 const signature = @import("signature.zig");
+// TODO organize imports
 const row = @import("rows.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log;
@@ -13,20 +14,20 @@ const Inbox = @This();
 
 const Impl = InboxImpl;
 
-pub fn eval(allocator: Allocator, w: *lib.HttpResponse, r: *lib.SpinRequest) void {
-    Impl.eval(allocator, w, r);
+pub fn eval(ally: Allocator, w: *lib.HttpResponse, r: *lib.SpinRequest) void {
+    Impl.eval(ally, w, r);
 }
 
 const InboxImpl = struct {
-    fn eval(allocator: Allocator, w: *lib.HttpResponse, req: *lib.SpinRequest) void {
-        const bad = unknownSignature(allocator, req) catch true;
+    fn eval(ally: Allocator, w: *lib.HttpResponse, req: *lib.SpinRequest) void {
+        const bad = unknownSignature(ally, req) catch true;
 
         if (bad) {
             return status.forbidden(w);
         }
 
         //TODO limit body content to 1MB
-        var tree = str.toTree(allocator, req.body) catch {
+        var tree = str.toTree(ally, req.body) catch {
             log.err("unexpected json format\n", .{});
             return status.unprocessable(w);
         };
@@ -34,7 +35,7 @@ const InboxImpl = struct {
 
         // capture for now (build processing later/next)
         ////redis.enqueue(allocator, logev) catch {
-        redis.debugDetail(allocator, .{ .tree = tree, .req = req }) catch {
+        redis.debugDetail(ally, .{ .tree = tree, .req = req }) catch {
             log.err("save failed", .{});
             return status.internal(w);
         };
@@ -50,7 +51,7 @@ const InboxImpl = struct {
 fn unknownSignature(allocator: Allocator, req: *lib.SpinRequest) !bool {
     const bad = true;
 
-    var placeholder = row.SourceHeaders{};
+    var placeholder = row.RawHeaders{};
     var wrap = row.HeaderList.init(allocator, placeholder);
 
     try signature.init(allocator, placeholder);

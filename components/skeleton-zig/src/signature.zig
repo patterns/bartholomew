@@ -1,21 +1,17 @@
 const std = @import("std");
 
 const str = @import("strings.zig");
-const row = @import("rows.zig");
 const exp = @import("modules/rsa/snippet.zig");
+// TODO organize imports
+const row = @import("rows.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const b64 = std.base64.standard.Decoder;
 const log = std.log;
 
-// TODO ?outbound http need to be enabled per destination
-//      which may make it impossible to allow every possible site of the public PEM key
-//      (maybe we want to make a proxy that handles the trip to these destinations)
-//      so use a configuration setting to allow toggling.
-
 const Signature = @This();
 
-pub const ProduceKeyFn = *const fn (allocator: Allocator, keyProvider: []const u8) PublicKey;
+pub const ProduceKeyFn = *const fn (ally: Allocator, keyProvider: []const u8) PublicKey;
 
 const Impl = struct { produce: ProduceKeyFn };
 var impl = SignedByRSAImpl{ .map = undefined, .publicKey = undefined };
@@ -24,7 +20,7 @@ var produce: ProduceKeyFn = undefined;
 // SHA256 hash creates digests of 32 bytes.
 const sha256_len: usize = 32;
 
-pub fn init(ally: Allocator, raw: row.SourceHeaders) !void {
+pub fn init(ally: Allocator, raw: row.RawHeaders) !void {
     impl.map = row.SignatureList.init(ally, raw);
     try impl.map.preverify();
 }
