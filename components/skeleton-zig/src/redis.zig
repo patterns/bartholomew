@@ -37,9 +37,11 @@ pub fn debugDetail(ally: std.mem.Allocator, option: anytype) !void {
     try tree.root.jsonStringify(.{}, bucket.writer());
     try bucket.appendSlice("##DEBUG##");
 
-    const src = req.headers;
-    for (src.items(.field), src.items(.value)) |field, value| {
-        try bucket.writer().print(";{s}#{s}", .{ field, value });
+    var rownum: usize = 0;
+    while (rownum < req.headers.len) : (rownum += 1) {
+        const tup = req.headers[rownum];
+        if (tup.fld.len == 0) break;
+        try bucket.writer().print(";{s}#{s}", .{ tup.fld, tup.val });
     }
 
     // duplicate payload to sentinel-terminated

@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const str = @import("strings.zig");
 const exp = @import("modules/rsa/snippet.zig");
 // TODO organize imports
 const row = @import("rows.zig");
@@ -8,6 +7,8 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const b64 = std.base64.standard.Decoder;
 const log = std.log;
+//const str = @import("strings.zig");
+const streq = std.ascii.eqlIgnoreCase;
 
 const Signature = @This();
 
@@ -46,7 +47,7 @@ pub fn calculate(allocator: Allocator, option: anytype) ![]u8 {
 pub fn baseInput(
     allocator: Allocator,
     headers: row.HeaderList,
-    method: u8,
+    method: usize,
     uri: []const u8,
 ) ![]u8 {
     return impl.recreate(allocator, method, uri, headers);
@@ -76,35 +77,38 @@ const SignedByRSAImpl = struct {
     map: row.SignatureList,
     publicKey: PublicKey,
 
-    // pass in: inbound request headers
+    // input: raw headers
     // output: sha256 hash of the input-string (used in signature)
     pub fn recreate(
         self: Self,
         allocator: Allocator,
-        method: u8,
+        method: usize,
         uri: []const u8,
         headers: row.HeaderList,
     ) ![]u8 {
-        var recipe = self.map.get(.sub_headers).value;
+        // each signature subheader has a value in quotes
+        const val = self.map.get(.sub_headers).value;
+        const recipe = mem.trim(u8, val, "\"");
 
-        var iter = mem.split(u8, recipe, " ");
+        var iter = mem.tokenize(u8, recipe, " ");
         var input_string = std.ArrayList(u8).init(allocator);
         ////defer input_string.deinit();
         const writer = input_string.writer();
 
         // reconstruct input-string
-        const first = iter.first();
-        try formatInputLeader(&input_string, first, method, uri);
+        const first = iter.next();
+        if (first == null) return error.SignatureDelim;
+        try formatInputLeader(&input_string, first.?, method, uri);
 
         while (iter.next()) |field| {
-            if (str.eq("host", field)) {
+            if (streq("host", field)) {
                 const name = headers.get(.host).value;
                 try writer.print("\nhost: {s}", .{name});
-            } else if (str.eq("date", field)) {
+            } else if (streq("date", field)) {
                 //todo check timestamp
                 const date = headers.get(.date).value;
                 try writer.print("\ndate: {s}", .{date});
-            } else if (str.eq("digest", field)) {
+            } else if (streq("digest", field)) {
                 //todo check digest
                 const digest = headers.get(.digest).value;
                 try writer.print("\ndigest: {s}", .{digest});
@@ -305,22 +309,23 @@ fn hashPrefixes() []const u8 {
 fn formatInputLeader(
     inpstr: *std.ArrayList(u8),
     first: []const u8,
-    method: u8,
+    method: usize,
     uri: []const u8,
 ) !void {
     // TODO double-check this, seen docs that begin with other subheaders
     if (!mem.startsWith(u8, first, "(request-target)")) {
-        // input sequence always starts with
-        log.err("httpsig hdr unkown format, \n", .{});
+        // assume input sequence always starts with
+        log.err("Httpsig leader format, {s}", .{first});
         return error.SignatureFormat;
     }
-
+    log.warn("Http meth, {d}", .{method});
     const verb = fmtMethod(method);
     var writer = inpstr.*.writer();
     try writer.print("{0s}: {1s} {2s}", .{ first, verb, uri });
 }
 
-fn fmtMethod(m: u8) []const u8 {
+// TODO probably need enum
+fn fmtMethod(m: usize) []const u8 {
     switch (m) {
         0 => return "get",
         1 => return "post",

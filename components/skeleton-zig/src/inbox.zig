@@ -51,7 +51,7 @@ const InboxImpl = struct {
 fn unknownSignature(allocator: Allocator, req: *lib.SpinRequest) !bool {
     const bad = true;
 
-    var placeholder = row.RawHeaders{};
+    var placeholder: row.RawHeaders = undefined;
     var wrap = row.HeaderList.init(allocator, placeholder);
 
     try signature.init(allocator, placeholder);

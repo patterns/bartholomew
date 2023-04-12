@@ -15,10 +15,11 @@ pub const HeaderList = Rows();
 // wrapper around raw subheaders
 pub const SignatureList = Rows();
 // TODO shorthand for raw headers
-pub const RawHeaders = std.MultiArrayList(struct {
-    field: [:0]const u8,
-    value: [:0]const u8,
-});
+pub const RawHeaders = [128]RawField;
+pub const RawField = struct {
+    fld: []const u8,
+    val: []const u8,
+};
 
 // convenience layer around raw headers
 pub fn Rows() type {
@@ -58,7 +59,7 @@ pub fn Rows() type {
             switch (ct) {
                 .sub_algorithm, .sub_headers, .sub_key_id, .sub_signature => {
                     // access subheaders by slice
-                    const root = self.signatureEntry();
+                    const root = self.rawSignature();
                     std.debug.assert(root.len != 0);
                     const v_len = hdr.val_pos + hdr.val_len;
                     const f_len = hdr.fld_pos + hdr.fld_len;
@@ -67,10 +68,10 @@ pub fn Rows() type {
                 },
 
                 else => {
-                    // access headers by index of mal
-                    const tup = self.source.get(hdr.fld_pos);
-                    val = tup.value;
-                    fld = tup.field;
+                    // access headers by index
+                    const tup = self.source[hdr.fld_pos];
+                    val = tup.val[0..];
+                    fld = tup.fld[0..];
                 },
             }
             return .{ .kind = ct, .value = val, .descr = fld };
@@ -78,7 +79,7 @@ pub fn Rows() type {
 
         // extract signature subheader fields
         pub fn preverify(self: *Self) !void {
-            const root = self.signatureEntry();
+            const root = self.rawSignature();
             std.debug.assert(root.len != 0);
 
             // TODO should be segmentedList? (better append/pop)
@@ -92,25 +93,31 @@ pub fn Rows() type {
 
         // sort raw headers into indexed list
         pub fn catalog(self: *Self) !void {
-            const raw = self.source;
-            for (raw.items(.field), raw.items(.value), 0..) |field, value, rownum| {
-                const kind = Kind.fromDescr(field);
+            var rownum: usize = 0;
+            while (rownum < self.source.len) : (rownum += 1) {
+                const tup = self.source[rownum];
+                if (tup.fld.len == 0) break;
+
+                const kind = Kind.fromDescr(tup.fld);
                 try self.cells.put(kind, Header{
                     .kind = kind,
                     .fld_pos = rownum,
-                    .fld_len = field.len,
+                    .fld_len = tup.fld.len,
                     .val_pos = rownum,
-                    .val_len = value.len,
+                    .val_len = tup.val.len,
                 });
             }
         }
 
         // retrieve the signature from raw headers
-        fn signatureEntry(self: Self) []const u8 {
-            const raw = self.source;
-            for (raw.items(.field), raw.items(.value)) |field, value| {
-                if (streq("signature", field)) {
-                    return value;
+        fn rawSignature(self: Self) []const u8 {
+            var rownum: usize = 0;
+            while (rownum < self.source.len) : (rownum += 1) {
+                const tup = self.source[rownum];
+                if (tup.fld.len == 0) break;
+
+                if (streq("signature", tup.fld[0..])) {
+                    return tup.val[0..];
                 }
             }
             return "";
@@ -236,13 +243,13 @@ const expectStr = std.testing.expectEqualStrings;
 test "wrapper around raw headers " {
     const ally = std.testing.allocator;
     // simulate raw header values
-    var raw = RawHeaders{};
-    defer raw.deinit(ally);
-    try raw.append(ally, .{ .field = "host", .value = "example.com" });
-    try raw.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try raw.append(ally, .{ .field = "content-type", .value = "application/json" });
-    try raw.append(ally, .{ .field = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try raw.append(ally, .{ .field = "content-length", .value = "18" });
+    var raw: RawHeaders = undefined;
+
+    raw[0] = RawField{ .fld = "host", .val = "example.com" };
+    raw[1] = RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
+    raw[2] = RawField{ .fld = "content-type", .val = "application/json" };
+    raw[3] = RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
+    raw[4] = RawField{ .fld = "content-length", .val = "18" };
 
     // wrap raw headers
     var headers = HeaderList.init(ally, raw);
@@ -265,12 +272,12 @@ test "wrapper around raw headers " {
 test "extraction of signature subheaders" {
     const ally = std.testing.allocator;
     // simulate raw header values
-    var raw = RawHeaders{};
-    defer raw.deinit(ally);
-    try raw.append(ally, .{
-        .field = "signature",
-        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
-    });
+    var raw: RawHeaders = undefined;
+
+    raw[0] = RawField{
+        .fld = "signature",
+        .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+    };
 
     // wrap subheaders
     var subheaders = SignatureList.init(ally, raw);

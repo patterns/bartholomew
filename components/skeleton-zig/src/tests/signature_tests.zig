@@ -51,30 +51,30 @@ fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKe
 }
 
 fn basicRequest(ally: Allocator) !*lib.SpinRequest {
-    const post: u8 = 1;
+    const post: usize = 1;
     const uri = "/foo?param=value&pet=dog";
     var arr = "{\"hello\": \"world\"}".*;
     var buf: []u8 = &arr;
     var body = std.io.fixedBufferStream(buf);
 
     // simulate raw header fields
-    var list = row.RawHeaders{};
-    try list.append(ally, .{ .field = "host", .value = "example.com" });
-    try list.append(ally, .{ .field = "date", .value = "Sun, 05 Jan 2014 21:31:40 GMT" });
-    try list.append(ally, .{ .field = "content-type", .value = "application/json" });
-    try list.append(ally, .{ .field = "digest", .value = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" });
-    try list.append(ally, .{ .field = "content-length", .value = "18" });
-    try list.append(ally, .{
-        .field = "signature",
-        .value = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
-    });
+    var list: row.RawHeaders = undefined;
+    list[0] = row.RawField{ .fld = "host", .val = "example.com" };
+    list[1] = row.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
+    list[2] = row.RawField{ .fld = "content-type", .val = "application/json" };
+    list[3] = row.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
+    list[4] = row.RawField{ .fld = "content-length", .val = "18" };
+    list[5] = row.RawField{
+        .fld = "signature",
+        .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+    };
 
     return newRequest(ally, post, uri, list, &body);
 }
 
 fn newRequest(
     ally: Allocator,
-    method: u8,
+    method: usize,
     uri: []const u8,
     headers: row.RawHeaders,
     body: *std.io.FixedBufferStream([]u8),
@@ -85,7 +85,7 @@ fn newRequest(
         .uri = uri,
         .headers = headers,
         .body = body,
-        .params = row.RawHeaders{},
+        .params = undefined,
     };
 
     return &req;
