@@ -2,12 +2,12 @@ const std = @import("std");
 
 const exp = @import("modules/rsa/snippet.zig");
 // TODO organize imports
-const row = @import("rows.zig");
+const lib = @import("lib.zig");
+const ro = @import("rows.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const b64 = std.base64.standard.Decoder;
 const log = std.log;
-//const str = @import("strings.zig");
 const streq = std.ascii.eqlIgnoreCase;
 
 const Signature = @This();
@@ -21,8 +21,8 @@ var produce: ProduceKeyFn = undefined;
 // SHA256 hash creates digests of 32 bytes.
 const sha256_len: usize = 32;
 
-pub fn init(ally: Allocator, raw: row.RawHeaders) !void {
-    impl.map = row.SignatureList.init(ally, raw);
+pub fn init(ally: Allocator, raw: ro.RawHeaders) !void {
+    impl.map = ro.SignatureList.init(ally, raw);
     try impl.map.preverify();
 }
 
@@ -31,26 +31,26 @@ pub fn attachFetch(fetch: ProduceKeyFn) void {
     produce = fetch;
 }
 // recreate the sha256 hash
-pub fn calculate(allocator: Allocator, option: anytype) ![]u8 {
+pub fn calculate(option: anytype) ![]u8 {
     const req = option.request;
     const h = option.refactorInProgress;
-    const m = req.method;
+    const m = Verb.fromInt(req.method);
     const u = req.uri;
 
-    const base_input = try impl.recreate(allocator, m, u, h);
+    //const base_input = try impl.recreate(allocator, m, u, h);
+    const base_input = try impl.fmtBase(m, u, h);
     const sha = std.crypto.hash.sha2.Sha256;
     var buffer: [sha256_len]u8 = undefined;
     sha.hash(base_input, &buffer, sha.Options{});
     return &buffer;
 }
-// recreate the signature base input
-pub fn baseInput(
-    allocator: Allocator,
-    headers: row.HeaderList,
-    method: usize,
-    uri: []const u8,
-) ![]u8 {
-    return impl.recreate(allocator, method, uri, headers);
+
+// reconstruct the signature base input str
+pub fn fmtBase(
+    req: lib.SpinRequest,
+    headers: ro.HeaderList,
+) ![]const u8 {
+    return impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 }
 
 pub fn verify(allocator: Allocator, hashed: []u8) !bool {
@@ -74,57 +74,39 @@ fn produceKey(allocator: Allocator) !PublicKey {
 const SignedByRSAImpl = struct {
     const Self = @This();
 
-    map: row.SignatureList,
+    map: ro.SignatureList,
     publicKey: PublicKey,
 
-    // input: raw headers
-    // output: sha256 hash of the input-string (used in signature)
-    pub fn recreate(
+    // reconstruct input-string
+    pub fn fmtBase(
         self: Self,
-        allocator: Allocator,
-        method: usize,
+        verb: Verb,
         uri: []const u8,
-        headers: row.HeaderList,
-    ) ![]u8 {
-        // each signature subheader has a value in quotes
-        const val = self.map.get(.sub_headers).value;
-        const recipe = mem.trim(u8, val, "\"");
+        headers: ro.HeaderList,
+    ) ![]const u8 {
+        // each signature subheader has its value encased in quotes
+        const shd = self.map.get(.sub_headers).value;
+        const recipe = mem.trim(u8, shd, "\"");
 
-        var iter = mem.tokenize(u8, recipe, " ");
-        var input_string = std.ArrayList(u8).init(allocator);
-        ////defer input_string.deinit();
-        const writer = input_string.writer();
+        var it = mem.tokenize(u8, recipe, " ");
 
-        // reconstruct input-string
-        const first = iter.next();
+        const first = it.next();
         if (first == null) return error.SignatureDelim;
-        try formatInputLeader(&input_string, first.?, method, uri);
 
-        while (iter.next()) |field| {
-            if (streq("host", field)) {
-                const name = headers.get(.host).value;
-                try writer.print("\nhost: {s}", .{name});
-            } else if (streq("date", field)) {
-                //todo check timestamp
-                const date = headers.get(.date).value;
-                try writer.print("\ndate: {s}", .{date});
-            } else if (streq("digest", field)) {
-                //todo check digest
-                const digest = headers.get(.digest).value;
-                try writer.print("\ndigest: {s}", .{digest});
+        const part1 = try fmtLeader(first.?, verb, uri);
 
-                //} else {
-                // TODO refactor w mal
-                //const val = hdr.get(field) orelse "00000";
-                //try writer.print("\n{s}: {s}", .{ field, val });
-            }
-        }
+        // prep bucket for base elements
+        var acc: [256]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&acc);
+        var wrt = fbs.writer();
 
-        //TODO
-        // _minimum_ required elements are date, host, and digest (method != get)
-        // it's an hard error when any are missing.
+        // maybe bring while loop instead of separate func as a first attempt (eliminate variables); or eliminate fbs and use plain arrays for a baseline poc
+        try fmtBaseElements(&it, headers, wrt);
 
-        return input_string.items;
+        // TODO is the result of writer.print turning into strings in acc?
+        ////var cat: [1024]u8 = undefined;
+        ////return std.fmt.bufPrintZ(&cat, "{s}{s}", .{part1, acc});
+        return part1;
     }
 
     // hashed: the SHA-256 hash of the input-string (signature base)
@@ -306,35 +288,45 @@ fn hashPrefixes() []const u8 {
     };
 }
 
-fn formatInputLeader(
-    inpstr: *std.ArrayList(u8),
+fn fmtLeader(
     first: []const u8,
-    method: usize,
+    method: Verb,
     uri: []const u8,
-) !void {
+) ![]const u8 {
     // TODO double-check this, seen docs that begin with other subheaders
     if (!mem.startsWith(u8, first, "(request-target)")) {
         // assume input sequence always starts with
         log.err("Httpsig leader format, {s}", .{first});
         return error.SignatureFormat;
     }
-    log.warn("Http meth, {d}", .{method});
-    const verb = fmtMethod(method);
-    var writer = inpstr.*.writer();
-    try writer.print("{0s}: {1s} {2s}", .{ first, verb, uri });
+
+    var buf: [128]u8 = undefined;
+    return std.fmt.bufPrintZ(&buf, "{0s}: {1s} {2s}", .{ first, method.toDescr(), uri });
 }
 
-// TODO probably need enum
-fn fmtMethod(m: usize) []const u8 {
-    switch (m) {
-        0 => return "get",
-        1 => return "post",
-        2 => return "put",
-        3 => return "delete",
-        4 => return "patch",
-        5 => return "head",
-        6 => return "options",
-        else => unreachable,
+fn fmtBaseElements(
+    it: *std.mem.TokenIterator(u8),
+    headers: ro.HeaderList,
+    w: std.io.FixedBufferStream([]u8).Writer,
+) !void {
+    while (it.next()) |base_el| {
+        if (streq("host", base_el)) {
+            const name = headers.get(.host).value;
+            try w.print("\nhost: {s}", .{name});
+        } else if (streq("date", base_el)) {
+            //todo check timestamp
+            const date = headers.get(.date).value;
+            try w.print("\ndate: {s}", .{date});
+        } else if (streq("digest", base_el)) {
+            //todo check digest
+            const digest = headers.get(.digest).value;
+            try w.print("\ndigest: {s}", .{digest});
+
+            //} else {
+            // TODO refactor w mal
+            //const val = hdr.get(field) orelse "00000";
+            //try std.bufPrint(buf[rownum], "\n{s}: {s}", .{ field, val });
+        }
     }
 }
 
@@ -353,4 +345,74 @@ pub const SignatureError = error{
     SignatureDate,
     SignatureDigest,
     SignatureDecode,
+};
+
+// http method / verbs (TODO don't expose publicly if possible)
+pub const Verb = enum(u8) {
+    get = 0,
+    post = 1,
+    put = 2,
+    delete = 3,
+    patch = 4,
+    head = 5,
+    options = 6,
+
+    // lookup table with the description
+    pub const DescrTable = [@typeInfo(Verb).Enum.fields.len][:0]const u8{
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "head",
+        "options",
+    };
+
+    // description (name) format of the enum
+    pub fn toDescr(self: Verb) [:0]const u8 {
+        //return DescrTable[@enumToInt(self)];
+        // insted of table, switch
+        switch (self) {
+            .get => return "get",
+            .post => return "post",
+            .put => return "put",
+            .delete => return "delete",
+            .patch => return "patch",
+            .head => return "head",
+            .options => return "options",
+        }
+    }
+
+    // convert to enum
+    pub fn fromDescr(text: []const u8) Verb {
+        for (DescrTable, 0..) |row, rownum| {
+            if (streq(row, text)) {
+                return @intToEnum(Verb, rownum);
+            }
+        }
+        unreachable;
+        ////return .options;
+    }
+
+    // cast enum back to raw u8
+    fn toInt(self: Verb) u8 {
+        const tmp = @enumToInt(self);
+        return @intCast(u8, tmp);
+    }
+    // raw u8 to enum
+    pub fn fromInt(raw: u8) Verb {
+        var tmp: u8 = raw;
+        if (raw < 0) {
+            tmp = raw * -1;
+        }
+        if (tmp < 0 or tmp > 6) {
+            log.err("Verb enum cast, {d}", .{tmp});
+        }
+
+        // preserve numerical value
+        const uns = @intCast(u8, tmp);
+        // shorten to enum
+        const chop = @truncate(u8, uns);
+        return @intToEnum(Verb, chop);
+    }
 };

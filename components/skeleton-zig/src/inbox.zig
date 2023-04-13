@@ -6,7 +6,7 @@ const config = @import("config.zig");
 const redis = @import("redis.zig");
 const signature = @import("signature.zig");
 // TODO organize imports
-const row = @import("rows.zig");
+const ro = @import("rows.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log;
 
@@ -51,12 +51,12 @@ const InboxImpl = struct {
 fn unknownSignature(allocator: Allocator, req: *lib.SpinRequest) !bool {
     const bad = true;
 
-    var placeholder: row.RawHeaders = undefined;
-    var wrap = row.HeaderList.init(allocator, placeholder);
+    var placeholder: ro.RawHeaders = undefined;
+    var wrap = ro.HeaderList.init(allocator, placeholder);
 
     try signature.init(allocator, placeholder);
 
-    const hashed = signature.calculate(allocator, .{ .request = req, .refactorInProgress = wrap }) catch {
+    const hashed = signature.calculate(.{ .request = req, .refactorInProgress = wrap }) catch {
         log.err("sha256 recreate failed", .{});
         return bad;
     };

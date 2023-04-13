@@ -6,7 +6,7 @@ const inbox = @import("inbox.zig");
 const Allocator = std.mem.Allocator;
 
 // TODO organize imports
-const row = @import("rows.zig");
+const ro = @import("rows.zig");
 
 //TODO think interface
 pub const EvalFn = *const fn (a: Allocator, w: *HttpResponse, r: *SpinRequest) void;
@@ -153,10 +153,10 @@ const xdata = struct {
 };
 
 // list conversion from C arrays
-fn xlist(addr: WasiAddr, rowcount: i32) !row.RawHeaders {
+fn xlist(addr: WasiAddr, rowcount: i32) !ro.RawHeaders {
     var record = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
     const max = @intCast(usize, rowcount);
-    var list: row.RawHeaders = undefined;
+    var list: ro.RawHeaders = undefined;
 
     var rownum: usize = 0;
     while (rownum < max) : (rownum +%= 1) {
@@ -173,8 +173,8 @@ fn xlist(addr: WasiAddr, rowcount: i32) !row.RawHeaders {
         _ = try std.fmt.bufPrintZ(&fld, "{s}", .{tup.f0.ptr[0..tup.f0.len]});
         _ = try std.fmt.bufPrintZ(&val, "{s}", .{tup.f1.ptr[0..tup.f1.len]});
 
-        ////try list.append(ally, row.RawField{ .fld = fld, .val = val });
-        list[rownum] = row.RawField{ .fld = &fld, .val = &val };
+        ////try list.append(ally, ro.RawField{ .fld = fld, .val = val });
+        list[rownum] = ro.RawField{ .fld = &fld, .val = &val };
 
         // free old kv
         CanonicalAbiFree(@ptrCast(?*anyopaque, tup.f0.ptr), tup.f0.len, 1);
@@ -263,8 +263,8 @@ pub const SpinRequest = struct {
     ally: Allocator,
     method: HttpMethod,
     uri: []const u8,
-    headers: row.RawHeaders,
-    params: row.RawHeaders,
+    headers: ro.RawHeaders,
+    params: ro.RawHeaders,
     body: *std.io.FixedBufferStream([]u8),
 
     // instantiate from C/interop (using addresses)
@@ -329,5 +329,5 @@ const WasiTuple = extern struct { f0: WasiStr, f1: WasiStr };
 
 /// HTTP status codes.
 pub const HttpStatus = u16;
-/// HTTP method verbs.
-pub const HttpMethod = usize;
+/// HTTP method verb.
+pub const HttpMethod = u8;

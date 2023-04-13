@@ -53,8 +53,9 @@ pub fn qryParams(allocator: Allocator, txt: []const u8) std.StringHashMap([]cons
     });
 }
 
+// DEPRECATE
 // convenience routine for the signature header
-pub fn sigPairs(allocator: Allocator, raw: []const u8) std.StringHashMap([]const u8) {
+fn sigPairs(allocator: Allocator, raw: []const u8) std.StringHashMap([]const u8) {
 
     // TODO ?? split w '=' is not good, since signatures contain symbol
 
@@ -221,7 +222,7 @@ fn fmtAscii(old: []const u8) []const u8 {
 }
 
 // compare strings (case/everything must match)
-pub fn eq(comptime s1: []const u8, s2: []const u8) bool {
+fn eq(comptime s1: []const u8, s2: []const u8) bool {
     return mem.eql(u8, s1, s2);
 }
 

@@ -3,7 +3,7 @@ const std = @import("std");
 const lib = @import("../lib.zig");
 const signature = @import("../signature.zig");
 // TODO organize imports
-const row = @import("../rows.zig");
+const ro = @import("../rows.zig");
 const Allocator = std.mem.Allocator;
 const ed25519 = std.crypto.sign.Ed25519;
 const expect = std.testing.expect;
@@ -14,25 +14,32 @@ test "signature base input string" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
+    // sim rcv request
+    var rcv = lib.SpinRequest{
+        .ally = ally,
+        .method = @enumToInt(signature.Verb.post),
+        .uri = "/foo?param=value&pet=dog",
+        .params = undefined,
+        .headers = undefined,
+        .body = undefined,
+    };
+    var arr = "{\"hello\": \"world\"}".*;
+    var buf: []u8 = &arr;
+    var fbs = std.io.fixedBufferStream(buf);
+    rcv.body = &fbs;
+    var raw = simRawHeaders();
+    rcv.headers = raw;
 
-    // simulate request
-    var basic_req = try basicRequest(ally);
     // wrap raw headers
-    var wrap = row.HeaderList.init(ally, basic_req.headers);
-    defer wrap.deinit();
+    var wrap = ro.HeaderList.init(ally, raw);
     try wrap.catalog();
 
-    try signature.init(ally, basic_req.headers);
-    const base_input = try signature.baseInput(
-        ally,
-        wrap,
-        basic_req.method,
-        basic_req.uri,
-    );
+    try signature.init(ally, raw);
+    const base = try signature.fmtBase(rcv, wrap);
 
     try expectStr(
         "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT",
-        base_input,
+        base,
     );
     //return error.SkipZigTest;
 }
@@ -50,45 +57,25 @@ fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKe
     };
 }
 
-fn basicRequest(ally: Allocator) !*lib.SpinRequest {
-    const post: usize = 1;
-    const uri = "/foo?param=value&pet=dog";
-    var arr = "{\"hello\": \"world\"}".*;
-    var buf: []u8 = &arr;
-    var body = std.io.fixedBufferStream(buf);
+fn simRawHeaders() ro.RawHeaders {
+
+    //var arr = "{\"hello\": \"world\"}".*;
+    //var buf: []u8 = &arr;
+    //var body = std.io.fixedBufferStream(buf);
 
     // simulate raw header fields
-    var list: row.RawHeaders = undefined;
-    list[0] = row.RawField{ .fld = "host", .val = "example.com" };
-    list[1] = row.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
-    list[2] = row.RawField{ .fld = "content-type", .val = "application/json" };
-    list[3] = row.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
-    list[4] = row.RawField{ .fld = "content-length", .val = "18" };
-    list[5] = row.RawField{
+    var list: ro.RawHeaders = undefined;
+    list[0] = ro.RawField{ .fld = "host", .val = "example.com" };
+    list[1] = ro.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
+    list[2] = ro.RawField{ .fld = "content-type", .val = "application/json" };
+    list[3] = ro.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
+    list[4] = ro.RawField{ .fld = "content-length", .val = "18" };
+    list[5] = ro.RawField{
         .fld = "signature",
         .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     };
 
-    return newRequest(ally, post, uri, list, &body);
-}
-
-fn newRequest(
-    ally: Allocator,
-    method: usize,
-    uri: []const u8,
-    headers: row.RawHeaders,
-    body: *std.io.FixedBufferStream([]u8),
-) *lib.SpinRequest {
-    var req = lib.SpinRequest{
-        .ally = ally,
-        .method = method,
-        .uri = uri,
-        .headers = headers,
-        .body = body,
-        .params = undefined,
-    };
-
-    return &req;
+    return list;
 }
 
 const pubPEM =
