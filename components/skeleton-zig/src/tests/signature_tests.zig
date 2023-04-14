@@ -4,8 +4,8 @@ const lib = @import("../lib.zig");
 const signature = @import("../signature.zig");
 // TODO organize imports
 const ro = @import("../rows.zig");
-const Allocator = std.mem.Allocator;
-const ed25519 = std.crypto.sign.Ed25519;
+
+//const ed25519 = std.crypto.sign.Ed25519;
 const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
@@ -27,16 +27,18 @@ test "signature base input string minimal" {
     var buf: []u8 = &arr;
     var fbs = std.io.fixedBufferStream(buf);
     rcv.body = &fbs;
+    // minimal headers
     var raw = minRawHeaders();
     rcv.headers = raw;
 
     // wrap raw headers
     var wrap = ro.HeaderList.init(ally, raw);
     try wrap.catalog();
-    // format base input
+    // format sig base input
     try signature.init(ally, raw);
     const base = try signature.fmtBase(rcv, wrap);
 
+    // With the headers specified, our expected signature base input string is:
     try expectStr(
         "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT",
         base,
@@ -60,17 +62,18 @@ test "signature base input string regular" {
     var buf: []u8 = &arr;
     var fbs = std.io.fixedBufferStream(buf);
     rcv.body = &fbs;
+    // headers to cover host,date,digest,content-type,content-length
     var raw = regRawHeaders();
     rcv.headers = raw;
 
     // wrap raw headers
     var wrap = ro.HeaderList.init(ally, raw);
     try wrap.catalog();
-    // format base input
+    // format sig base input
     try signature.init(ally, raw);
     const base = try signature.fmtBase(rcv, wrap);
 
-    ////return error.SkipZigTest;
+    // With the headers specified, our expected signature base input string is:
     try expectStr(
         "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT\ncontent-type: application/json\ndigest: SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=\ncontent-length: 18",
 
@@ -78,8 +81,44 @@ test "signature base input string regular" {
     );
 }
 
+test "signature base in the form of SHA256 sum" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
+    // sim rcv request
+    var rcv = lib.SpinRequest{
+        .ally = ally,
+        .method = @enumToInt(signature.Verb.post),
+        .uri = "/foo?param=value&pet=dog",
+        .params = undefined,
+        .headers = undefined,
+        .body = undefined,
+    };
+    var arr = "{\"hello\": \"world\"}".*;
+    var buf: []u8 = &arr;
+    var fbs = std.io.fixedBufferStream(buf);
+    rcv.body = &fbs;
+    // headers to cover host,date,digest,content-type,content-length
+    var raw = regRawHeaders();
+    rcv.headers = raw;
+
+    // wrap raw headers
+    var wrap = ro.HeaderList.init(ally, raw);
+    try wrap.catalog();
+    // perform calculation
+    try signature.init(ally, raw);
+    const base = try signature.sha256Base(rcv, wrap);
+
+    var expsum: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&expsum, "53CD4050FF72E3A6383091186168F3DF4CA2E6B3A77CBED60A02BA00C9CD8078");
+
+    // With the headers specified, our signature base must be sum:
+    try std.testing.expectEqual(expsum, base);
+}
+////return error.SkipZigTest;
+
 //const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
-fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKey {
+fn basicPublicKeyRSA(allocator: std.mem.Allocator, proxy: []const u8) signature.PublicKey {
     _ = proxy;
     const key = signature.fromPEM(allocator, pub_key_pem) catch |err| {
         std.debug.panic("PEM decode failed, {!}", .{err});

@@ -30,19 +30,15 @@ pub fn init(ally: Allocator, raw: ro.RawHeaders) !void {
 pub fn attachFetch(fetch: ProduceKeyFn) void {
     produce = fetch;
 }
-// recreate the sha256 hash
-pub fn calculate(option: anytype) ![]u8 {
-    const req = option.request;
-    const h = option.refactorInProgress;
-    const m = Verb.fromInt(req.method);
-    const u = req.uri;
 
-    //const base_input = try impl.recreate(allocator, m, u, h);
-    const base_input = try impl.fmtBase(m, u, h);
+// calculate sha256 sum of signature base input str
+pub fn sha256Base(req: lib.SpinRequest, headers: ro.HeaderList) ![sha256_len]u8 {
+    const base = try impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
+
     const sha = std.crypto.hash.sha2.Sha256;
     var buffer: [sha256_len]u8 = undefined;
-    sha.hash(base_input, &buffer, sha.Options{});
-    return &buffer;
+    sha.hash(base, &buffer, sha.Options{});
+    return buffer;
 }
 
 // reconstruct the signature base input str
@@ -53,7 +49,7 @@ pub fn fmtBase(
     return impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 }
 
-pub fn verify(allocator: Allocator, hashed: []u8) !bool {
+pub fn verify(allocator: Allocator, hashed: [sha256_len]u8) !bool {
     // _pre-verify_, make the fetch to instantiate a public key
     const key = try produceKey(allocator);
     // impl.Set(public_key);
@@ -91,11 +87,13 @@ const SignedByRSAImpl = struct {
 
         const first = it.next();
         if (first == null) return error.SignatureDelim;
+
         // TODO double-check this, seen docs that begin with other subheaders
         if (!mem.startsWith(u8, first.?, "(request-target)")) {
             log.err("Httpsig leader format, {s}", .{first.?});
             return error.SignatureFormat;
         }
+
         // prep bucket for base elements (multiline)
         var acc: [512]u8 = undefined;
         var chan = std.io.StreamSource{ .buffer = std.io.fixedBufferStream(&acc) };
@@ -107,15 +105,15 @@ const SignedByRSAImpl = struct {
         while (it.next()) |base_el| {
             if (streq("host", base_el)) {
                 const name = headers.get(.host).value;
-                try std.fmt.format(out, "\nhost: {s}", .{name});
+                try out.print("\nhost: {s}", .{name});
             } else if (streq("date", base_el)) {
                 //todo check timestamp
                 const date = headers.get(.date).value;
-                try std.fmt.format(out, "\ndate: {s}", .{date});
+                try out.print("\ndate: {s}", .{date});
             } else if (streq("digest", base_el)) {
                 //todo check digest
                 const digest = headers.get(.digest).value;
-                try std.fmt.format(out, "\ndigest: {s}", .{digest});
+                try out.print("\ndigest: {s}", .{digest});
             } else {
                 // TODO handle USER-DEFINED
                 const kind = ro.Kind.fromDescr(base_el);
@@ -126,15 +124,13 @@ const SignedByRSAImpl = struct {
             }
         }
 
-        // TODO ?is there a terminating newline
-
         return chan.buffer.getWritten();
     }
 
     // hashed: the SHA-256 hash of the input-string (signature base)
     // signature: the plain text decoded from header base64 field
     // see https://go.dev/src/crypto/rsa/pkcs1v15.go
-    pub fn verifyPKCS1v15(self: Self, hashed: []u8) !bool {
+    pub fn verifyPKCS1v15(self: Self, hashed: [sha256_len]u8) !bool {
         const info = try pkcs1v15HashInfo(hashed.len);
         const tLen = info.prefix.len + info.hashLen;
 
@@ -380,7 +376,7 @@ pub const Verb = enum(u8) {
         return @intCast(u8, tmp);
     }
     // raw u8 to enum
-    pub fn fromInt(raw: u8) Verb {
+    fn fromInt(raw: u8) Verb {
         var tmp: u8 = raw;
         if (raw < 0) {
             tmp = raw * -1;

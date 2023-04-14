@@ -20,7 +20,7 @@ pub fn eval(ally: Allocator, w: *lib.HttpResponse, r: *lib.SpinRequest) void {
 
 const InboxImpl = struct {
     fn eval(ally: Allocator, w: *lib.HttpResponse, req: *lib.SpinRequest) void {
-        const bad = unknownSignature(ally, req) catch true;
+        const bad = unknownSignature(ally, req.*) catch true;
 
         if (bad) {
             return status.forbidden(w);
@@ -48,7 +48,7 @@ const InboxImpl = struct {
     }
 };
 
-fn unknownSignature(allocator: Allocator, req: *lib.SpinRequest) !bool {
+fn unknownSignature(allocator: Allocator, req: lib.SpinRequest) !bool {
     const bad = true;
 
     var placeholder: ro.RawHeaders = undefined;
@@ -56,7 +56,7 @@ fn unknownSignature(allocator: Allocator, req: *lib.SpinRequest) !bool {
 
     try signature.init(allocator, placeholder);
 
-    const hashed = signature.calculate(.{ .request = req, .refactorInProgress = wrap }) catch {
+    const hashed = signature.sha256Base(req, wrap) catch {
         log.err("sha256 recreate failed", .{});
         return bad;
     };
