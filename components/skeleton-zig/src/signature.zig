@@ -87,26 +87,44 @@ const SignedByRSAImpl = struct {
         // each signature subheader has its value encased in quotes
         const shd = self.map.get(.sub_headers).value;
         const recipe = mem.trim(u8, shd, "\"");
-
         var it = mem.tokenize(u8, recipe, " ");
 
         const first = it.next();
         if (first == null) return error.SignatureDelim;
+        // TODO double-check this, seen docs that begin with other subheaders
+        if (!mem.startsWith(u8, first.?, "(request-target)")) {
+            log.err("Httpsig leader format, {s}", .{first.?});
+            return error.SignatureFormat;
+        }
+        // prep bucket for base elements (multiline)
+        var acc: [512]u8 = undefined;
+        var chan = std.io.StreamSource{ .buffer = std.io.fixedBufferStream(&acc) };
+        var out = chan.writer();
 
-        const part1 = try fmtLeader(first.?, verb, uri);
+        // base leader
+        try out.print("{0s}: {1s} {2s}", .{ first.?, verb.toDescr(), uri });
+        // base elements
+        while (it.next()) |base_el| {
+            if (streq("host", base_el)) {
+                const name = headers.get(.host).value;
+                try std.fmt.format(out, "\nhost: {s}", .{name});
+            } else if (streq("date", base_el)) {
+                //todo check timestamp
+                const date = headers.get(.date).value;
+                try std.fmt.format(out, "\ndate: {s}", .{date});
+            } else if (streq("digest", base_el)) {
+                //todo check digest
+                const digest = headers.get(.digest).value;
+                try std.fmt.format(out, "\ndigest: {s}", .{digest});
 
-        // prep bucket for base elements
-        var acc: [256]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&acc);
-        var wrt = fbs.writer();
+                //} else {
+                // TODO refactor w mal
+                //const val = hdr.get(field) orelse "00000";
+                //try std.bufPrint(buf[rownum], "\n{s}: {s}", .{ field, val });
+            }
+        }
 
-        // maybe bring while loop instead of separate func as a first attempt (eliminate variables); or eliminate fbs and use plain arrays for a baseline poc
-        try fmtBaseElements(&it, headers, wrt);
-
-        // TODO is the result of writer.print turning into strings in acc?
-        ////var cat: [1024]u8 = undefined;
-        ////return std.fmt.bufPrintZ(&cat, "{s}{s}", .{part1, acc});
-        return part1;
+        return chan.buffer.getWritten();
     }
 
     // hashed: the SHA-256 hash of the input-string (signature base)
@@ -286,48 +304,6 @@ fn hashPrefixes() []const u8 {
     return &[_]u8{
         0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
     };
-}
-
-fn fmtLeader(
-    first: []const u8,
-    method: Verb,
-    uri: []const u8,
-) ![]const u8 {
-    // TODO double-check this, seen docs that begin with other subheaders
-    if (!mem.startsWith(u8, first, "(request-target)")) {
-        // assume input sequence always starts with
-        log.err("Httpsig leader format, {s}", .{first});
-        return error.SignatureFormat;
-    }
-
-    var buf: [128]u8 = undefined;
-    return std.fmt.bufPrintZ(&buf, "{0s}: {1s} {2s}", .{ first, method.toDescr(), uri });
-}
-
-fn fmtBaseElements(
-    it: *std.mem.TokenIterator(u8),
-    headers: ro.HeaderList,
-    w: std.io.FixedBufferStream([]u8).Writer,
-) !void {
-    while (it.next()) |base_el| {
-        if (streq("host", base_el)) {
-            const name = headers.get(.host).value;
-            try w.print("\nhost: {s}", .{name});
-        } else if (streq("date", base_el)) {
-            //todo check timestamp
-            const date = headers.get(.date).value;
-            try w.print("\ndate: {s}", .{date});
-        } else if (streq("digest", base_el)) {
-            //todo check digest
-            const digest = headers.get(.digest).value;
-            try w.print("\ndigest: {s}", .{digest});
-
-            //} else {
-            // TODO refactor w mal
-            //const val = hdr.get(field) orelse "00000";
-            //try std.bufPrint(buf[rownum], "\n{s}: {s}", .{ field, val });
-        }
-    }
 }
 
 pub const SignatureError = error{
