@@ -10,7 +10,7 @@ const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
 
-test "signature base input string" {
+test "signature base input string minimal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
@@ -27,13 +27,13 @@ test "signature base input string" {
     var buf: []u8 = &arr;
     var fbs = std.io.fixedBufferStream(buf);
     rcv.body = &fbs;
-    var raw = simRawHeaders();
+    var raw = minRawHeaders();
     rcv.headers = raw;
 
     // wrap raw headers
     var wrap = ro.HeaderList.init(ally, raw);
     try wrap.catalog();
-
+    // format base input
     try signature.init(ally, raw);
     const base = try signature.fmtBase(rcv, wrap);
 
@@ -41,7 +41,41 @@ test "signature base input string" {
         "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT",
         base,
     );
-    //return error.SkipZigTest;
+}
+
+test "signature base input string regular" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
+    // sim rcv request
+    var rcv = lib.SpinRequest{
+        .ally = ally,
+        .method = @enumToInt(signature.Verb.post),
+        .uri = "/foo?param=value&pet=dog",
+        .params = undefined,
+        .headers = undefined,
+        .body = undefined,
+    };
+    var arr = "{\"hello\": \"world\"}".*;
+    var buf: []u8 = &arr;
+    var fbs = std.io.fixedBufferStream(buf);
+    rcv.body = &fbs;
+    var raw = regRawHeaders();
+    rcv.headers = raw;
+
+    // wrap raw headers
+    var wrap = ro.HeaderList.init(ally, raw);
+    try wrap.catalog();
+    // format base input
+    try signature.init(ally, raw);
+    const base = try signature.fmtBase(rcv, wrap);
+
+    ////return error.SkipZigTest;
+    try expectStr(
+        "(request-target): post /foo?param=value&pet=dog\nhost: example.com\ndate: Sun, 05 Jan 2014 21:31:40 GMT\ncontent-type: application/json\ndigest: SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=\ncontent-length: 18",
+
+        base,
+    );
 }
 
 //const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
@@ -57,13 +91,8 @@ fn basicPublicKeyRSA(allocator: Allocator, proxy: []const u8) signature.PublicKe
     };
 }
 
-fn simRawHeaders() ro.RawHeaders {
-
-    //var arr = "{\"hello\": \"world\"}".*;
-    //var buf: []u8 = &arr;
-    //var body = std.io.fixedBufferStream(buf);
-
-    // simulate raw header fields
+// simulate raw header fields
+fn minRawHeaders() ro.RawHeaders {
     var list: ro.RawHeaders = undefined;
     list[0] = ro.RawField{ .fld = "host", .val = "example.com" };
     list[1] = ro.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
@@ -73,6 +102,22 @@ fn simRawHeaders() ro.RawHeaders {
     list[5] = ro.RawField{
         .fld = "signature",
         .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
+    };
+
+    return list;
+}
+
+// simulate covered raw headers
+fn regRawHeaders() ro.RawHeaders {
+    var list: ro.RawHeaders = undefined;
+    list[0] = ro.RawField{ .fld = "host", .val = "example.com" };
+    list[1] = ro.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
+    list[2] = ro.RawField{ .fld = "content-type", .val = "application/json" };
+    list[3] = ro.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
+    list[4] = ro.RawField{ .fld = "content-length", .val = "18" };
+    list[5] = ro.RawField{
+        .fld = "signature",
+        .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date content-type digest content-length\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     };
 
     return list;

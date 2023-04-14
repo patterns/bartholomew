@@ -137,9 +137,48 @@ pub const Header = packed struct {
 
 // sub/header set membership
 pub const Kind = enum(u8) {
+    www_authenticate,
     authorization,
+    proxy_authenticate,
+    proxy_authorization,
+    age,
+    cache_control,
+    clear_site_data,
+    expires,
+    pragma,
+    warning,
+    downlink,
+    ect,
+    rtt,
+    last_modified,
+    etag,
+    if_match,
+    if_none_match,
+    if_modified_since,
+    if_unmodified_since,
+    vary,
+    connection,
+    keep_alive,
+    accept,
+    accept_encoding,
+    accept_language,
+    expect,
+    max_forwards,
+    cookie,
+    set_cookie,
+    content_encoding,
     content_type,
     content_length,
+    content_language,
+    content_location,
+    forwarded,
+    via,
+    from,
+    referer,
+    referrer_policy,
+    user_agent,
+    allow,
+    server,
     date,
     digest,
     host,
@@ -148,43 +187,87 @@ pub const Kind = enum(u8) {
     sub_headers,
     sub_key_id,
     sub_signature,
+    sub_created,
+    sub_expires,
     user_defined,
     // TODO member type user_defined can land on 1+ values
     //      (maybe keep a linked-list just for that member type)
     //      which would mean a flag "has_siblings" or "can_have_siblings"
 
-    // lookup table with the description
-    pub const DescrTable = [@typeInfo(Kind).Enum.fields.len][:0]const u8{
-        "authorization",
-        "content-type",
-        "content-length",
-        "date",
-        "digest",
-        "host",
-        "signature",
-        "algorithm",
-        "headers",
-        "keyid",
-        "SUB-SIGNATURE",
-        "user-defined",
-    };
-
-    // description (name) format of the enum
-    pub fn toDescr(self: Kind) [:0]const u8 {
-        // using the term description because meaning of name is more specific
-        // and we need a overloaded/fuzzier definition of the text representation
-        return DescrTable[@enumToInt(self)];
-    }
-
     // convert to enum
     pub fn fromDescr(text: []const u8) Kind {
-        for (DescrTable, 0..) |row, rownum| {
-            if (streq(row, text)) {
-                return @intToEnum(Kind, rownum);
-            }
-        }
+        if (streq("www-authenticate", text)) return .www_authenticate;
+        if (streq("authorization", text)) return .authorization;
+        if (streq("proxy-authenticate", text)) return .proxy_authenticate;
+        if (streq("proxy-authorization", text)) return .proxy_authorization;
+        if (streq("age", text)) return .age;
+        if (streq("cache-control", text)) return .cache_control;
+        if (streq("clear-site-data", text)) return .clear_site_data;
+        if (streq("expires", text)) return .expires;
+        if (streq("pragma", text)) return .pragma;
+        if (streq("warning", text)) return .warning;
+        if (streq("downlink", text)) return .downlink;
+        if (streq("ect", text)) return .ect;
+        if (streq("rtt", text)) return .rtt;
+        if (streq("last-modified", text)) return .last_modified;
+        if (streq("etag", text)) return .etag;
+        if (streq("if-match", text)) return .if_match;
+        if (streq("if-none-match", text)) return .if_none_match;
+        if (streq("if-modified-since", text)) return .if_modified_since;
+        if (streq("if-unmodified-since", text)) return .if_unmodified_since;
+        if (streq("vary", text)) return .vary;
+        if (streq("connection", text)) return .connection;
+        if (streq("keep-alive", text)) return .keep_alive;
+        if (streq("accept", text)) return .accept;
+        if (streq("accept-encoding", text)) return .accept_encoding;
+        if (streq("accept-language", text)) return .accept_language;
+        if (streq("expect", text)) return .expect;
+        if (streq("max-forwards", text)) return .max_forwards;
+        if (streq("cookie", text)) return .cookie;
+        if (streq("set-cookie", text)) return .set_cookie;
+        if (streq("content-encoding", text)) return .content_encoding;
+        if (streq("content-type", text)) return .content_type;
+        if (streq("content-length", text)) return .content_length;
+        if (streq("content-language", text)) return .content_language;
+        if (streq("content-location", text)) return .content_location;
+        if (streq("forwarded", text)) return .forwarded;
+        if (streq("via", text)) return .via;
+        if (streq("from", text)) return .from;
+        if (streq("referer", text)) return .referer;
+        if (streq("referrer-policy", text)) return .referrer_policy;
+        if (streq("user-agent", text)) return .user_agent;
+        if (streq("allow", text)) return .allow;
+        if (streq("server", text)) return .server;
+        if (streq("date", text)) return .date;
+        if (streq("digest", text)) return .digest;
+        if (streq("host", text)) return .host;
+        if (streq("signature", text)) return .signature;
+        if (streq("algorithm", text)) return .sub_algorithm;
+        if (streq("headers", text)) return .sub_headers;
+        if (streq("keyid", text)) return .sub_key_id;
+        if (streq("created", text)) return .sub_created;
+        if (streq("expires", text)) return .sub_expires;
+        if (streq("SUB-SIGNATURE", text)) return .sub_signature;
+
+        // "USER-DEFINED"
         return .user_defined;
     }
+
+    //const DescrTable = [@typeInfo(Kind).Enum.fields.len][:0]const u8{
+    // description (name) format of the enum
+    //fn toDescr(self: Kind) [:0]const u8 {
+    // using the term description because meaning of name is more specific
+    // and we need a overloaded/fuzzier definition of the text representation
+    //    return DescrTable[@enumToInt(self)];
+    //}
+    //fn fromDescr(text: []const u8) Kind {
+    //    for (DescrTable, 0..) |row, rownum| {
+    //        if (streq(row, text)) {
+    //            return @intToEnum(Kind, rownum);
+    //        }
+    //    }
+    //    return .user_defined;
+    //}
 };
 
 // accept the signature subheader, return list containing offsets to fields
@@ -291,8 +374,10 @@ test "extraction of signature subheaders" {
     const sh_hd = subheaders.get(.sub_headers).value;
     try expectStr("\"(request-target) host date\"", sh_hd);
 
-    // take extra step and decode the signature which would have been base64
     const sh_sig = subheaders.get(.sub_signature).value;
+    try expectStr("\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"", sh_sig);
+
+    // is this extra decode step unecessary (because we don't need to unit test stdlib's base64)
     const cleaned = std.mem.trim(u8, sh_sig, "\"");
     var b64 = std.base64.standard.Decoder;
     var decoded_orig: [256]u8 = undefined;

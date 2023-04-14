@@ -116,13 +116,17 @@ const SignedByRSAImpl = struct {
                 //todo check digest
                 const digest = headers.get(.digest).value;
                 try std.fmt.format(out, "\ndigest: {s}", .{digest});
+            } else {
+                // TODO handle USER-DEFINED
+                const kind = ro.Kind.fromDescr(base_el);
+                const val = headers.get(kind).value;
 
-                //} else {
-                // TODO refactor w mal
-                //const val = hdr.get(field) orelse "00000";
-                //try std.bufPrint(buf[rownum], "\n{s}: {s}", .{ field, val });
+                const lower = base_el;
+                try out.print("\n{s}: {s}", .{ lower, val });
             }
         }
+
+        // TODO ?is there a terminating newline
 
         return chan.buffer.getWritten();
     }
