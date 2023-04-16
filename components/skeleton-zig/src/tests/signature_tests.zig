@@ -10,12 +10,13 @@ const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
 
+
 test "signature base input string minimal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // sim rcv request
-    var rcv = lib.SpinRequest{
+    // sim rcv request 
+    var rcv = lib.SpinRequest {
         .ally = ally,
         .method = @enumToInt(signature.Verb.post),
         .uri = "/foo?param=value&pet=dog",
@@ -49,8 +50,8 @@ test "signature base input string regular" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // sim rcv request
-    var rcv = lib.SpinRequest{
+    // sim rcv request 
+    var rcv = lib.SpinRequest {
         .ally = ally,
         .method = @enumToInt(signature.Verb.post),
         .uri = "/foo?param=value&pet=dog",
@@ -81,12 +82,49 @@ test "signature base input string regular" {
     );
 }
 
-test "signature base in the form of SHA256 sum" {
+test "min signature base in the form of SHA256 sum" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // sim rcv request
-    var rcv = lib.SpinRequest{
+    // sim rcv request 
+    var rcv = lib.SpinRequest {
+        .ally = ally,
+        .method = @enumToInt(signature.Verb.post),
+        .uri = "/foo?param=value&pet=dog",
+        .params = undefined,
+        .headers = undefined,
+        .body = undefined,
+    };
+    var arr = "{\"hello\": \"world\"}".*;
+    var buf: []u8 = &arr;
+    var fbs = std.io.fixedBufferStream(buf);
+    rcv.body = &fbs;
+    // minimal headers
+    var raw = minRawHeaders();
+    rcv.headers = raw;
+
+    // wrap raw headers
+    var wrap = ro.HeaderList.init(ally, raw);
+    try wrap.catalog();
+
+    // perform calculation
+    try signature.init(ally, raw);
+    var base = try signature.sha256Base(rcv, wrap);
+
+    var minsum: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&minsum,
+        "f29e22e3a108abc999f5b0ed27cdb461ca30cdbd3057efa170af52c83dfc0ca6");
+
+    // With the headers specified, our signature base must be sum:
+    try std.testing.expectEqual(minsum, base[0..32].*);
+}
+
+test "reg signature base in the form of SHA256 sum" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
+    // sim rcv request 
+    var rcv = lib.SpinRequest {
         .ally = ally,
         .method = @enumToInt(signature.Verb.post),
         .uri = "/foo?param=value&pet=dog",
@@ -110,13 +148,17 @@ test "signature base in the form of SHA256 sum" {
     try signature.init(ally, raw);
     var base = try signature.sha256Base(rcv, wrap);
 
-    var expsum: [32]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&expsum, "53CD4050FF72E3A6383091186168F3DF4CA2E6B3A77CBED60A02BA00C9CD8078");
+    var regsum: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&regsum,
+        "53CD4050FF72E3A6383091186168F3DF4CA2E6B3A77CBED60A02BA00C9CD8078");
 
     // With the headers specified, our signature base must be sum:
-    try std.testing.expectEqual(expsum, base[0..32].*);
+    try std.testing.expectEqual(regsum, base[0..32].*);
 }
-////return error.SkipZigTest;
+
+    ////return error.SkipZigTest;
+
+
 
 //const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
 fn basicPublicKeyRSA(allocator: std.mem.Allocator, proxy: []const u8) signature.PublicKey {
@@ -162,6 +204,8 @@ fn regRawHeaders() ro.RawHeaders {
 
     return list;
 }
+
+
 
 const pubPEM =
     \\-----BEGIN PUBLIC KEY-----
