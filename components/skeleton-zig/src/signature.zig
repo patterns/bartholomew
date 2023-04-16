@@ -12,11 +12,11 @@ const streq = std.ascii.eqlIgnoreCase;
 
 const Signature = @This();
 
-pub const ProduceKeyFn = *const fn (ally: Allocator, keyProvider: []const u8) PublicKey;
+pub const ProduceVerifierFn = *const fn (ally: Allocator, keyProvider: []const u8) anyerror!PublicKey;
 
-const Impl = struct { produce: ProduceKeyFn };
+const Impl = struct { produce: ProduceVerifierFn };
 var impl = SignedByRSAImpl{ .map = undefined, .publicKey = undefined };
-var produce: ProduceKeyFn = undefined;
+var produce: ProduceVerifierFn = undefined;
 
 // SHA256 creates digests of 32 bytes.
 const sha256_len: usize = 32;
@@ -26,36 +26,31 @@ pub fn init(ally: Allocator, raw: ro.RawHeaders) !void {
     try impl.map.preverify();
 }
 
-// user defined steps to retrieve the public key
-pub fn attachFetch(fetch: ProduceKeyFn) void {
+// user defined step to harvest the verifier (pub key)
+pub fn attachFetch(fetch: ProduceVerifierFn) void {
+    // usually triggers network trip to the key provider:
+    // - in wasi, we designate a proxy because no ACL will be exhaustive
+    // - on-premise, can be database retrieve,
+    // - in tests, will short circuit (fake/hard-coded)
     produce = fetch;
 }
 
-// calculate sha256 sum of signature base input str
+// calculate SHA256 sum of signature base input str
 pub fn sha256Base(req: lib.SpinRequest, headers: ro.HeaderList) ![sha256_len]u8 {
     var buffer: [sha256_len]u8 = undefined;
-
     const base = try impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
-
     std.crypto.hash.sha2.Sha256.hash(base, &buffer, .{});
     return buffer;
-    // streaming version is to conserve memory
-    ////var h = std.crypto.hash.sha2.Sha256.init(.{});
-    ////h.update(base);
-    ////h.final(buffer[0..]);
 }
 
 // reconstruct the signature base input str
-pub fn fmtBase(
-    req: lib.SpinRequest,
-    headers: ro.HeaderList,
-) ![]const u8 {
+pub fn fmtBase(req: lib.SpinRequest, headers: ro.HeaderList) ![]const u8 {
     return impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 }
 
 pub fn verify(allocator: Allocator, hashed: [sha256_len]u8) !bool {
     // _pre-verify_, make the fetch to instantiate a public key
-    const key = try produceKey(allocator);
+    const key = try produceVerifier(allocator);
     // impl.Set(public_key);
     impl.publicKey = key;
 
@@ -63,10 +58,12 @@ pub fn verify(allocator: Allocator, hashed: [sha256_len]u8) !bool {
     // but needs to be replaced by the version from std.crypto.Certificate
     return impl.verifyPKCS1v15(hashed);
 }
-fn produceKey(allocator: Allocator) !PublicKey {
+
+// allows test to fire the fetch event
+pub fn produceVerifier(ally: Allocator) !PublicKey {
     if (produce != undefined) {
         const kp = impl.map.get(.sub_key_id).value;
-        return produce(allocator, kp);
+        return produce(ally, kp);
     }
     return error.FetchNotDefined;
 }
@@ -173,6 +170,7 @@ const SignedByRSAImpl = struct {
     }
 };
 
+// TODO need to use stream for pem instead of []const u8
 // Open PEM envelope to find DER of SubjectPublicKeyInfo
 pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
     N: []const u8,
@@ -270,8 +268,6 @@ pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
         }
         //}
     }
-
-    log.debug("pub N: {any}, E: {any}", .{ key_tuple.N, key_tuple.E });
 
     return .{ .N = key_tuple.N, .E = key_tuple.E };
 }
@@ -371,28 +367,28 @@ pub const Verb = enum(u8) {
             }
         }
         unreachable;
-        ////return .options;
     }
 
     // cast enum back to raw u8
-    fn toInt(self: Verb) u8 {
-        const tmp = @enumToInt(self);
-        return @intCast(u8, tmp);
-    }
+    //fn toInt(self: Verb) u8 {
+    //    const tmp = @enumToInt(self);
+    //    return @intCast(u8, tmp);
+    //}
     // raw u8 to enum
-    fn fromInt(raw: u8) Verb {
-        var tmp: u8 = raw;
-        if (raw < 0) {
-            tmp = raw * -1;
-        }
-        if (tmp < 0 or tmp > 6) {
-            log.err("Verb enum cast, {d}", .{tmp});
-        }
+    //fn fromInt(raw: u8) Verb {
 
-        // preserve numerical value
-        const uns = @intCast(u8, tmp);
-        // shorten to enum
-        const chop = @truncate(u8, uns);
-        return @intToEnum(Verb, chop);
-    }
+    //    var tmp: u8 = raw;
+    //    if (raw < 0) {
+    //        tmp = raw * -1;
+    //    }
+    //    if (tmp < 0 or tmp > 6) {
+    //        log.err("Verb enum cast, {d}", .{tmp});
+    //    }
+
+    // preserve numerical value
+    //    const uns = @intCast(u8, tmp);
+    // shorten to enum
+    //    const chop = @truncate(u8, uns);
+    //    return @intToEnum(Verb, chop);
+    //}
 };

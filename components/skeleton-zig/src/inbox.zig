@@ -59,17 +59,19 @@ fn unknownSignature(allocator: Allocator, req: lib.SpinRequest) !bool {
     var hashed = try signature.sha256Base(req, wrap);
     signature.attachFetch(MockKey);
 
-    const check = signature.verify(allocator, hashed);
-    log.debug("verify, {any}", .{check});
+    _ = try signature.verify(allocator, hashed);
 
     // checks passed
     return !bad;
 }
 
 // need test cases for the httpsig input sequence
-fn MockKey(allocator: Allocator, proxy: []const u8) signature.PublicKey {
+fn MockKey(allocator: Allocator, proxy: []const u8) !signature.PublicKey {
     _ = allocator;
-    log.debug("mock fetch, {s}\n", .{proxy});
+    if (proxy.len == 0) {
+        return error.KeyProvider;
+    }
+
     const key = signature.PublicKey{
         .N = std.mem.zeroes([]const u8),
         .E = std.mem.zeroes([]const u8),

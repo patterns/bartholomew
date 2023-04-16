@@ -4,19 +4,17 @@ const lib = @import("../lib.zig");
 const signature = @import("../signature.zig");
 // TODO organize imports
 const ro = @import("../rows.zig");
-
-//const ed25519 = std.crypto.sign.Ed25519;
 const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
 
-
+// ensure signature base reconstruction works
 test "signature base input string minimal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // sim rcv request 
-    var rcv = lib.SpinRequest {
+    // sim rcv request
+    var rcv = lib.SpinRequest{
         .ally = ally,
         .method = @enumToInt(signature.Verb.post),
         .uri = "/foo?param=value&pet=dog",
@@ -46,12 +44,13 @@ test "signature base input string minimal" {
     );
 }
 
+// ensure signature base reconstruction works
 test "signature base input string regular" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // sim rcv request 
-    var rcv = lib.SpinRequest {
+    // sim rcv request
+    var rcv = lib.SpinRequest{
         .ally = ally,
         .method = @enumToInt(signature.Verb.post),
         .uri = "/foo?param=value&pet=dog",
@@ -82,12 +81,13 @@ test "signature base input string regular" {
     );
 }
 
+// show correctness of (input params to) SHA256 calculation
 test "min signature base in the form of SHA256 sum" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // sim rcv request 
-    var rcv = lib.SpinRequest {
+    // sim rcv request
+    var rcv = lib.SpinRequest{
         .ally = ally,
         .method = @enumToInt(signature.Verb.post),
         .uri = "/foo?param=value&pet=dog",
@@ -112,19 +112,19 @@ test "min signature base in the form of SHA256 sum" {
     var base = try signature.sha256Base(rcv, wrap);
 
     var minsum: [32]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&minsum,
-        "f29e22e3a108abc999f5b0ed27cdb461ca30cdbd3057efa170af52c83dfc0ca6");
+    _ = try std.fmt.hexToBytes(&minsum, "f29e22e3a108abc999f5b0ed27cdb461ca30cdbd3057efa170af52c83dfc0ca6");
 
     // With the headers specified, our signature base must be sum:
     try std.testing.expectEqual(minsum, base[0..32].*);
 }
 
+// show correctness of (input params to) SHA256 calculation
 test "reg signature base in the form of SHA256 sum" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // sim rcv request 
-    var rcv = lib.SpinRequest {
+    // sim rcv request
+    var rcv = lib.SpinRequest{
         .ally = ally,
         .method = @enumToInt(signature.Verb.post),
         .uri = "/foo?param=value&pet=dog",
@@ -149,27 +149,48 @@ test "reg signature base in the form of SHA256 sum" {
     var base = try signature.sha256Base(rcv, wrap);
 
     var regsum: [32]u8 = undefined;
-    _ = try std.fmt.hexToBytes(&regsum,
-        "53CD4050FF72E3A6383091186168F3DF4CA2E6B3A77CBED60A02BA00C9CD8078");
+    _ = try std.fmt.hexToBytes(&regsum, "53CD4050FF72E3A6383091186168F3DF4CA2E6B3A77CBED60A02BA00C9CD8078");
 
     // With the headers specified, our signature base must be sum:
     try std.testing.expectEqual(regsum, base[0..32].*);
 }
 
-    ////return error.SkipZigTest;
+// obtaining the verifier key usually requires a network trip so we make the step
+// accept a "harvest" function which is the purpose of this test
+test "produce verifier (pub) key" {
+    // TODO clean up memory leak
+    //const ally = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
 
+    // minimal headers
+    var raw = minRawHeaders();
 
+    // fake key via our custom tester fetch
+    try signature.init(ally, raw);
+    signature.attachFetch(basicVerifierRSA);
+    var verifier = try signature.produceVerifier(ally);
+
+    // match known properties of the test key
+    std.log.warn("veri N, {s}", .{verifier.N});
+    //try std.testing.expectEqual(verifier.N.len, 1);
+    const exponent = try std.fmt.parseInt(usize, verifier.E, 10);
+    try std.testing.expectEqual(exponent, 65537);
+}
+
+////    return error.SkipZigTest;
 
 //const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
-fn basicPublicKeyRSA(allocator: std.mem.Allocator, proxy: []const u8) signature.PublicKey {
+fn basicVerifierRSA(ally: std.mem.Allocator, proxy: []const u8) !signature.PublicKey {
+    // skip network trip that would normally connect to proxy/provider
     _ = proxy;
-    const key = signature.fromPEM(allocator, pub_key_pem) catch |err| {
-        std.debug.panic("PEM decode failed, {!}", .{err});
-    };
+
+    const verifier = try signature.fromPEM(ally, public_key_PEM);
 
     return signature.PublicKey{
-        .N = key.N,
-        .E = key.E,
+        .N = verifier.N,
+        .E = verifier.E,
     };
 }
 
@@ -205,8 +226,6 @@ fn regRawHeaders() ro.RawHeaders {
     return list;
 }
 
-
-
 const pubPEM =
     \\-----BEGIN PUBLIC KEY-----
     \\MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAlRuRnThUjU8/prwYxbty
@@ -224,7 +243,7 @@ const pubPEM =
     \\-----END PUBLIC KEY-----
 ;
 
-const pub_key_pem =
+const public_key_PEM =
     \\-----BEGIN PUBLIC KEY-----
     \\MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCFENGw33yGihy92pDjZQhl0C3
     \\6rPJj+CvfSC8+q28hxA161QFNUd13wuCTUcq0Qd2qsBe/2hFyc2DCJJg0h1L78+6
@@ -232,7 +251,3 @@ const pub_key_pem =
     \\oYi+1hqp1fIekaxsyQIDAQAB
     \\-----END PUBLIC KEY-----
 ;
-
-// TODO try more examples from the draft
-// (https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-message-signatures-16)
-
