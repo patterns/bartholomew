@@ -16,7 +16,6 @@ pub fn build(b: *bld.Builder) !void {
     const exe = b.addExecutable(optMain(.{.target=to, .optimize=oo}));
     exe.single_threaded = true;
     exe.export_symbol_names = &export_names;
-    ////exe.install();
     b.installArtifact(exe);
 
     // Creates a step for unit testing.

@@ -56,11 +56,7 @@ fn unknownSignature(allocator: Allocator, req: lib.SpinRequest) !bool {
 
     try signature.init(allocator, placeholder);
 
-    const hashed = signature.sha256Base(req, wrap) catch {
-        log.err("sha256 recreate failed", .{});
-        return bad;
-    };
-
+    var hashed = try signature.sha256Base(req, wrap);
     signature.attachFetch(MockKey);
 
     const check = signature.verify(allocator, hashed);

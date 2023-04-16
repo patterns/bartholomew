@@ -18,7 +18,7 @@ const Impl = struct { produce: ProduceKeyFn };
 var impl = SignedByRSAImpl{ .map = undefined, .publicKey = undefined };
 var produce: ProduceKeyFn = undefined;
 
-// SHA256 hash creates digests of 32 bytes.
+// SHA256 creates digests of 32 bytes.
 const sha256_len: usize = 32;
 
 pub fn init(ally: Allocator, raw: ro.RawHeaders) !void {
@@ -33,12 +33,16 @@ pub fn attachFetch(fetch: ProduceKeyFn) void {
 
 // calculate sha256 sum of signature base input str
 pub fn sha256Base(req: lib.SpinRequest, headers: ro.HeaderList) ![sha256_len]u8 {
+    var buffer: [sha256_len]u8 = undefined;
+
     const base = try impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 
-    const sha = std.crypto.hash.sha2.Sha256;
-    var buffer: [sha256_len]u8 = undefined;
-    sha.hash(base, &buffer, sha.Options{});
+    std.crypto.hash.sha2.Sha256.hash(base, &buffer, .{});
     return buffer;
+    // streaming version is to conserve memory
+    ////var h = std.crypto.hash.sha2.Sha256.init(.{});
+    ////h.update(base);
+    ////h.final(buffer[0..]);
 }
 
 // reconstruct the signature base input str
@@ -105,22 +109,22 @@ const SignedByRSAImpl = struct {
         while (it.next()) |base_el| {
             if (streq("host", base_el)) {
                 const name = headers.get(.host).value;
-                try out.print("\nhost: {s}", .{name});
+                try out.print("\u{000A}host: {s}", .{name});
             } else if (streq("date", base_el)) {
                 //todo check timestamp
                 const date = headers.get(.date).value;
-                try out.print("\ndate: {s}", .{date});
+                try out.print("\u{000A}date: {s}", .{date});
             } else if (streq("digest", base_el)) {
                 //todo check digest
                 const digest = headers.get(.digest).value;
-                try out.print("\ndigest: {s}", .{digest});
+                try out.print("\u{000A}digest: {s}", .{digest});
             } else {
                 // TODO handle USER-DEFINED
                 const kind = ro.Kind.fromDescr(base_el);
                 const val = headers.get(kind).value;
 
                 const lower = base_el;
-                try out.print("\n{s}: {s}", .{ lower, val });
+                try out.print("\u{000A}{s}: {s}", .{ lower, val });
             }
         }
 
