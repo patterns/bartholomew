@@ -1,8 +1,7 @@
 const std = @import("std");
 
 const lib = @import("../lib.zig");
-const signature = @import("../signature.zig");
-// TODO organize imports
+const vfr = @import("../verifier.zig");
 const ro = @import("../rows.zig");
 const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
@@ -16,7 +15,7 @@ test "signature base input string minimal" {
     // sim rcv request
     var rcv = lib.SpinRequest{
         .ally = ally,
-        .method = @enumToInt(signature.Verb.post),
+        .method = @enumToInt(vfr.Verb.post),
         .uri = "/foo?param=value&pet=dog",
         .params = undefined,
         .headers = undefined,
@@ -34,8 +33,8 @@ test "signature base input string minimal" {
     var wrap = ro.HeaderList.init(ally, raw);
     try wrap.catalog();
     // format sig base input
-    try signature.init(ally, raw);
-    const base = try signature.fmtBase(rcv, wrap);
+    try vfr.init(ally, raw);
+    const base = try vfr.fmtBase(rcv, wrap);
 
     // With the headers specified, our expected signature base input string is:
     try expectStr(
@@ -52,7 +51,7 @@ test "signature base input string regular" {
     // sim rcv request
     var rcv = lib.SpinRequest{
         .ally = ally,
-        .method = @enumToInt(signature.Verb.post),
+        .method = @enumToInt(vfr.Verb.post),
         .uri = "/foo?param=value&pet=dog",
         .params = undefined,
         .headers = undefined,
@@ -70,8 +69,8 @@ test "signature base input string regular" {
     var wrap = ro.HeaderList.init(ally, raw);
     try wrap.catalog();
     // format sig base input
-    try signature.init(ally, raw);
-    const base = try signature.fmtBase(rcv, wrap);
+    try vfr.init(ally, raw);
+    const base = try vfr.fmtBase(rcv, wrap);
 
     // With the headers specified, our expected signature base input string is:
     try expectStr(
@@ -89,7 +88,7 @@ test "min signature base in the form of SHA256 sum" {
     // sim rcv request
     var rcv = lib.SpinRequest{
         .ally = ally,
-        .method = @enumToInt(signature.Verb.post),
+        .method = @enumToInt(vfr.Verb.post),
         .uri = "/foo?param=value&pet=dog",
         .params = undefined,
         .headers = undefined,
@@ -108,8 +107,8 @@ test "min signature base in the form of SHA256 sum" {
     try wrap.catalog();
 
     // perform calculation
-    try signature.init(ally, raw);
-    var base = try signature.sha256Base(rcv, wrap);
+    try vfr.init(ally, raw);
+    var base = try vfr.sha256Base(rcv, wrap);
 
     var minsum: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(&minsum, "f29e22e3a108abc999f5b0ed27cdb461ca30cdbd3057efa170af52c83dfc0ca6");
@@ -126,7 +125,7 @@ test "reg signature base in the form of SHA256 sum" {
     // sim rcv request
     var rcv = lib.SpinRequest{
         .ally = ally,
-        .method = @enumToInt(signature.Verb.post),
+        .method = @enumToInt(vfr.Verb.post),
         .uri = "/foo?param=value&pet=dog",
         .params = undefined,
         .headers = undefined,
@@ -145,8 +144,8 @@ test "reg signature base in the form of SHA256 sum" {
     try wrap.catalog();
 
     // perform calculation
-    try signature.init(ally, raw);
-    var base = try signature.sha256Base(rcv, wrap);
+    try vfr.init(ally, raw);
+    var base = try vfr.sha256Base(rcv, wrap);
 
     var regsum: [32]u8 = undefined;
     _ = try std.fmt.hexToBytes(&regsum, "53CD4050FF72E3A6383091186168F3DF4CA2E6B3A77CBED60A02BA00C9CD8078");
@@ -167,31 +166,30 @@ test "produce verifier (pub) key" {
     // minimal headers
     var raw = minRawHeaders();
 
-    // fake key via our custom tester fetch
-    try signature.init(ally, raw);
-    signature.attachFetch(basicVerifierRSA);
-    var verifier = try signature.produceVerifier(ally);
+    // fake public key via our custom harvester
+    try vfr.init(ally, raw);
+    vfr.attachFetch(produceFromPublicKeyPEM);
+    var vkey = try vfr.produceVerifier(ally);
+
+    var int_e: usize = undefined;
+    if (vkey.e.fits(usize)) {
+        int_e = try vkey.e.to(usize);
+    }
 
     // match known properties of the test key
-    std.log.warn("veri N, {s}", .{verifier.N});
-    //try std.testing.expectEqual(verifier.N.len, 1);
-    const exponent = try std.fmt.parseInt(usize, verifier.E, 10);
-    try std.testing.expectEqual(exponent, 65537);
+    try std.testing.expectEqual(int_e, 65537);
 }
 
 ////    return error.SkipZigTest;
 
-//const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
-fn basicVerifierRSA(ally: std.mem.Allocator, proxy: []const u8) !signature.PublicKey {
+////const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
+fn produceFromPublicKeyPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypto.Certificate.rsa.PublicKey {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
 
-    const verifier = try signature.fromPEM(ally, public_key_PEM);
+    var fbs = std.io.fixedBufferStream(public_key_PEM);
 
-    return signature.PublicKey{
-        .N = verifier.N,
-        .E = verifier.E,
-    };
+    return vfr.fromPEM(fbs.reader(), ally);
 }
 
 // simulate raw header fields
@@ -243,7 +241,7 @@ const pubPEM =
     \\-----END PUBLIC KEY-----
 ;
 
-const public_key_PEM =
+var public_key_PEM =
     \\-----BEGIN PUBLIC KEY-----
     \\MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCFENGw33yGihy92pDjZQhl0C3
     \\6rPJj+CvfSC8+q28hxA161QFNUd13wuCTUcq0Qd2qsBe/2hFyc2DCJJg0h1L78+6

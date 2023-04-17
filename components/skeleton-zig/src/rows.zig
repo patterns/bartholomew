@@ -12,8 +12,8 @@ const streq = std.ascii.eqlIgnoreCase;
 
 // wrapper around raw headers
 pub const HeaderList = Rows();
-// wrapper around raw subheaders
-pub const SignatureList = Rows();
+// wrapper around raw auth-params
+pub const AuthParams = Rows();
 // TODO shorthand for raw headers
 pub const RawHeaders = [128]RawField;
 pub const RawField = struct {
@@ -363,7 +363,7 @@ test "extraction of signature subheaders" {
     };
 
     // wrap subheaders
-    var subheaders = SignatureList.init(ally, raw);
+    var subheaders = AuthParams.init(ally, raw);
     defer subheaders.deinit();
     try subheaders.preverify();
 

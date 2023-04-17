@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const exp = @import("modules/rsa/snippet.zig");
-// TODO organize imports
 const lib = @import("lib.zig");
 const ro = @import("rows.zig");
 const mem = std.mem;
@@ -10,9 +9,9 @@ const b64 = std.base64.standard.Decoder;
 const log = std.log;
 const streq = std.ascii.eqlIgnoreCase;
 
-const Signature = @This();
+const Verifier = @This();
 
-pub const ProduceVerifierFn = *const fn (ally: Allocator, keyProvider: []const u8) anyerror!PublicKey;
+pub const ProduceVerifierFn = *const fn (keyProvider: []const u8, ally: Allocator) anyerror!std.crypto.Certificate.rsa.PublicKey;
 
 const Impl = struct { produce: ProduceVerifierFn };
 var impl = SignedByRSAImpl{ .map = undefined, .publicKey = undefined };
@@ -22,7 +21,7 @@ var produce: ProduceVerifierFn = undefined;
 const sha256_len: usize = 32;
 
 pub fn init(ally: Allocator, raw: ro.RawHeaders) !void {
-    impl.map = ro.SignatureList.init(ally, raw);
+    impl.map = ro.AuthParams.init(ally, raw);
     try impl.map.preverify();
 }
 
@@ -48,22 +47,24 @@ pub fn fmtBase(req: lib.SpinRequest, headers: ro.HeaderList) ![]const u8 {
     return impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 }
 
-pub fn verify(allocator: Allocator, hashed: [sha256_len]u8) !bool {
+pub fn verify(ally: Allocator, hashed: [sha256_len]u8) !bool {
     // _pre-verify_, make the fetch to instantiate a public key
-    const key = try produceVerifier(allocator);
+    const key = try produceVerifier(ally);
     // impl.Set(public_key);
     impl.publicKey = key;
 
     // TODO this is the rsa verify that we started,
     // but needs to be replaced by the version from std.crypto.Certificate
-    return impl.verifyPKCS1v15(hashed);
+    //return verifyPKCS1v15(hashed);
+    log.warn("placeholder, {any}", .{hashed});
+    return false;
 }
 
 // allows test to fire the fetch event
-pub fn produceVerifier(ally: Allocator) !PublicKey {
+pub fn produceVerifier(ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
     if (produce != undefined) {
-        const kp = impl.map.get(.sub_key_id).value;
-        return produce(ally, kp);
+        const key_provider = impl.map.get(.sub_key_id).value;
+        return produce(key_provider, ally);
     }
     return error.FetchNotDefined;
 }
@@ -71,8 +72,8 @@ pub fn produceVerifier(ally: Allocator) !PublicKey {
 const SignedByRSAImpl = struct {
     const Self = @This();
 
-    map: ro.SignatureList,
-    publicKey: PublicKey,
+    map: ro.AuthParams,
+    publicKey: std.crypto.Certificate.rsa.PublicKey,
 
     // reconstruct input-string
     pub fn fmtBase(
@@ -131,24 +132,26 @@ const SignedByRSAImpl = struct {
     // hashed: the SHA-256 hash of the input-string (signature base)
     // signature: the plain text decoded from header base64 field
     // see https://go.dev/src/crypto/rsa/pkcs1v15.go
-    pub fn verifyPKCS1v15(self: Self, hashed: [sha256_len]u8) !bool {
-        const info = try pkcs1v15HashInfo(hashed.len);
-        const tLen = info.prefix.len + info.hashLen;
+    pub fn verifyPKCS1v15(hashed: [sha256_len]u8) !bool {
+        //const info = try pkcs1v15HashInfo(hashed.len);
+        //const tLen = info.prefix.len + info.hashLen;
 
-        const plain = try self.decodeB64();
-        const k = self.publicKey.size();
+        //const plain = try self.decodeB64();
+        //const k = self.publicKey.size();
 
-        if (k < tLen + 11) return error.ErrVerification;
+        //if (k < tLen + 11) return error.ErrVerification;
 
         // TODO double-confirm logic
         ////if (k != plain.len) return error.ErrVerification;
 
         // DEBUG DEBUG
-        try exp.snippet.verifyRsa(std.crypto.hash.sha2.Sha256, hashed[0..sha256_len].*, plain, self.publicKey.N, self.publicKey.E);
+        //try exp.snippet.verifyRsa(std.crypto.hash.sha2.Sha256,
+        //    hashed[0..sha256_len].*, plain,
+        //    self.publicKey.n, self.publicKey.e);
 
-        log.debug("did it REALLY work finally?!", .{});
+        log.debug("did it REALLY work, {any}", .{hashed});
 
-        return true;
+        return false;
     }
 
     // The signature becomes the length of the SHA256 hash after base64 decoding.
@@ -170,42 +173,31 @@ const SignedByRSAImpl = struct {
     }
 };
 
-// TODO need to use stream for pem instead of []const u8
 // Open PEM envelope to find DER of SubjectPublicKeyInfo
-pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
-    N: []const u8,
-    E: []const u8,
-} {
+pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
+    //// !struct { N: []const u8, E: []const u8 }{
+
     // sanity check as this is not for every case of PEM
-    var start: usize = undefined;
-    var stop: usize = undefined;
-    if (mem.indexOf(u8, pem, "-----BEGIN PUBLIC KEY")) |index| {
-        start = index;
-    } else {
-        return error.UnknownPEM;
-    }
-    if (mem.indexOf(u8, pem, "-----END PUBLIC KEY")) |index| {
-        stop = index;
-    } else {
-        return error.UnknownPEM;
+
+    const max = comptime maxPEM();
+    var buffer: [max]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    var line_buf: [80]u8 = undefined;
+    var begin_marker_found = false;
+
+    while (try pem.readUntilDelimiterOrEof(&line_buf, lf_literal)) |line| {
+        if (mem.startsWith(u8, line, "-----END PUBLIC KEY")) break;
+        if (mem.startsWith(u8, line, "-----BEGIN PUBLIC KEY")) {
+            begin_marker_found = true;
+            continue;
+        }
+        if (begin_marker_found) {
+            _ = try fbs.write(line);
+        }
     }
 
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
-    var clean: []const u8 = undefined;
-    var iter = mem.tokenize(u8, pem, "\n");
-    while (iter.next()) |line| {
-        clean = mem.trim(u8, line, "\n");
-        if (mem.startsWith(u8, clean, "-----END PUBLIC KEY")) break;
-        if (mem.startsWith(u8, clean, "-----BEGIN PUBLIC KEY")) continue;
-        try buffer.appendSlice(clean);
-    }
-
-    var sz = try b64.calcSizeForSlice(buffer.items);
-    var bufdco = try allocator.alloc(u8, sz);
-    //defer allocator.free(bufdco);
-    var decoded = bufdco[0..sz];
-    try b64.decode(decoded, buffer.items);
+    var decoded: [max]u8 = undefined;
+    try b64.decode(&decoded, fbs.getWritten());
 
     // does the DER slice begin with 0x30? (sequence_tag); 48 in decimal
     const begin = decoded[0];
@@ -240,13 +232,13 @@ pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
     const spki = decoded[first_index..last_index];
 
     // at algorithm-identifier (OID)
-    //const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
+    ////const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
     var check: []u8 = undefined;
     var bit_str: []u8 = undefined;
     var data: []u8 = undefined;
 
     //TODO debug more safety on N/E
-    var key_tuple: struct { E: []const u8, N: []const u8 } = undefined;
+
     const tag = spki[0];
     if (tag == 0x30 and spki[1] == 0x0D) {
         // tag means sequence and 0x0D means field is 13 bytes
@@ -264,12 +256,12 @@ pub fn fromPEM(allocator: Allocator, pem: []const u8) !struct {
 
             data = bit_str[5..];
             const tmp = try std.crypto.Certificate.rsa.PublicKey.parseDer(data);
-            key_tuple = .{ .E = tmp.exponent, .N = tmp.modulus };
+            return std.crypto.Certificate.rsa.PublicKey.fromBytes(data, tmp.modulus, ally);
         }
         //}
     }
 
-    return .{ .N = key_tuple.N, .E = key_tuple.E };
+    return error.PublicKeyPemParse;
 }
 
 fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
@@ -304,6 +296,18 @@ fn hashPrefixes() []const u8 {
     return &[_]u8{
         0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
     };
+}
+
+const lf_codept = "\u{000A}";
+const lf_literal = 0x0A;
+
+// limit of RSA pub key
+fn maxPEM() usize {
+    // assume 4096 bits is largest RSA
+    const count = 512;
+    // base64 increases by 24 bits
+    const multi = 3;
+    return count * multi;
 }
 
 pub const SignatureError = error{

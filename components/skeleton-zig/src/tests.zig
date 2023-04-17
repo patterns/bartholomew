@@ -1,6 +1,6 @@
 test "Rows" {
     _ = @import("rows.zig");
 }
-test "Signature" {
-    _ = @import("tests/signature_tests.zig");
+test "Verifier" {
+    _ = @import("tests/verifier_tests.zig");
 }

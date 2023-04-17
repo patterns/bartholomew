@@ -4,7 +4,7 @@ const str = @import("strings.zig");
 const status = @import("status.zig");
 const config = @import("config.zig");
 const redis = @import("redis.zig");
-const signature = @import("signature.zig");
+const vfr = @import("verifier.zig");
 // TODO organize imports
 const ro = @import("rows.zig");
 const Allocator = std.mem.Allocator;
@@ -48,33 +48,29 @@ const InboxImpl = struct {
     }
 };
 
-fn unknownSignature(allocator: Allocator, req: lib.SpinRequest) !bool {
+fn unknownSignature(ally: Allocator, req: lib.SpinRequest) !bool {
     const bad = true;
 
     var placeholder: ro.RawHeaders = undefined;
-    var wrap = ro.HeaderList.init(allocator, placeholder);
+    var wrap = ro.HeaderList.init(ally, placeholder);
 
-    try signature.init(allocator, placeholder);
+    try vfr.init(ally, placeholder);
 
-    var hashed = try signature.sha256Base(req, wrap);
-    signature.attachFetch(MockKey);
+    var hashed = try vfr.sha256Base(req, wrap);
+    vfr.attachFetch(customVerifier);
 
-    _ = try signature.verify(allocator, hashed);
+    _ = try vfr.verify(ally, hashed);
 
     // checks passed
     return !bad;
 }
 
 // need test cases for the httpsig input sequence
-fn MockKey(allocator: Allocator, proxy: []const u8) !signature.PublicKey {
-    _ = allocator;
+fn customVerifier(proxy: []const u8, ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
+    _ = ally;
     if (proxy.len == 0) {
         return error.KeyProvider;
     }
 
-    const key = signature.PublicKey{
-        .N = std.mem.zeroes([]const u8),
-        .E = std.mem.zeroes([]const u8),
-    };
-    return key;
+    return std.crypto.Certificate.rsa.PublicKey{ .e = undefined, .n = undefined };
 }
