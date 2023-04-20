@@ -3,10 +3,9 @@ const std = @import("std");
 //const actor = @import("actor.zig");
 //const outbox = @import("outbox.zig");
 const inbox = @import("inbox.zig");
-const Allocator = std.mem.Allocator;
 
-// TODO organize imports
-const ro = @import("rows.zig");
+const ro = @import("params.zig");
+const Allocator = std.mem.Allocator;
 
 //TODO think interface
 pub const EvalFn = *const fn (a: Allocator, w: *HttpResponse, r: *SpinRequest) void;

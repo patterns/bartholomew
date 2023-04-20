@@ -1,29 +1,30 @@
 const std = @import("std");
 
-const exp = @import("modules/rsa/snippet.zig");
+const snip = @import("modules/rsa/snippet.zig");
 const lib = @import("lib.zig");
-const ro = @import("rows.zig");
+const prm = @import("params.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const b64 = std.base64.standard.Decoder;
 const log = std.log;
 const streq = std.ascii.eqlIgnoreCase;
 
+// Reminder, _Verifier_ rename here is to emphasize that our concern is
+// only the public key; at the same time, we are not making a general purpose
+// public key, this verifier is limited to ActivityPub and the HTTP signature
+// in Mastodon server crosstalk.
 const Verifier = @This();
 
-pub const ProduceVerifierFn = *const fn (keyProvider: []const u8, ally: Allocator) anyerror!std.crypto.Certificate.rsa.PublicKey;
-
 const Impl = struct { produce: ProduceVerifierFn };
-var impl = SignedByRSAImpl{ .map = undefined, .publicKey = undefined };
+var impl = ByRSASignerImpl{ .auth = undefined, .publicKey = undefined };
 var produce: ProduceVerifierFn = undefined;
 
-// SHA256 creates digests of 32 bytes.
-const sha256_len: usize = 32;
-
-pub fn init(ally: Allocator, raw: ro.RawHeaders) !void {
-    impl.map = ro.AuthParams.init(ally, raw);
-    try impl.map.preverify();
+pub fn init(ally: Allocator, raw: prm.RawHeaders) !void {
+    impl.auth = prm.AuthParams.init(ally, raw);
+    try impl.auth.preverify();
 }
+
+pub const ProduceVerifierFn = *const fn (keyProvider: []const u8, ally: Allocator) anyerror!std.crypto.Certificate.rsa.PublicKey;
 
 // user defined step to harvest the verifier (pub key)
 pub fn attachFetch(fetch: ProduceVerifierFn) void {
@@ -35,7 +36,7 @@ pub fn attachFetch(fetch: ProduceVerifierFn) void {
 }
 
 // calculate SHA256 sum of signature base input str
-pub fn sha256Base(req: lib.SpinRequest, headers: ro.HeaderList) ![sha256_len]u8 {
+pub fn sha256Base(req: lib.SpinRequest, headers: prm.HeaderList) ![sha256_len]u8 {
     var buffer: [sha256_len]u8 = undefined;
     const base = try impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
     std.crypto.hash.sha2.Sha256.hash(base, &buffer, .{});
@@ -43,7 +44,7 @@ pub fn sha256Base(req: lib.SpinRequest, headers: ro.HeaderList) ![sha256_len]u8 
 }
 
 // reconstruct the signature base input str
-pub fn fmtBase(req: lib.SpinRequest, headers: ro.HeaderList) ![]const u8 {
+pub fn fmtBase(req: lib.SpinRequest, headers: prm.HeaderList) ![]const u8 {
     return impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 }
 
@@ -63,16 +64,16 @@ pub fn verify(ally: Allocator, hashed: [sha256_len]u8) !bool {
 // allows test to fire the fetch event
 pub fn produceVerifier(ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
     if (produce != undefined) {
-        const key_provider = impl.map.get(.sub_key_id).value;
+        const key_provider = impl.auth.get(.sub_key_id).value;
         return produce(key_provider, ally);
     }
     return error.FetchNotDefined;
 }
 
-const SignedByRSAImpl = struct {
+const ByRSASignerImpl = struct {
     const Self = @This();
 
-    map: ro.AuthParams,
+    auth: prm.AuthParams,
     publicKey: std.crypto.Certificate.rsa.PublicKey,
 
     // reconstruct input-string
@@ -80,10 +81,10 @@ const SignedByRSAImpl = struct {
         self: Self,
         verb: Verb,
         uri: []const u8,
-        headers: ro.HeaderList,
+        headers: prm.HeaderList,
     ) ![]const u8 {
         // each signature subheader has its value encased in quotes
-        const shd = self.map.get(.sub_headers).value;
+        const shd = self.auth.get(.sub_headers).value;
         const recipe = mem.trim(u8, shd, "\"");
         var it = mem.tokenize(u8, recipe, " ");
 
@@ -118,7 +119,7 @@ const SignedByRSAImpl = struct {
                 try out.print("\u{000A}digest: {s}", .{digest});
             } else {
                 // TODO handle USER-DEFINED
-                const kind = ro.Kind.fromDescr(base_el);
+                const kind = prm.Kind.fromDescr(base_el);
                 const val = headers.get(kind).value;
 
                 const lower = base_el;
@@ -157,7 +158,7 @@ const SignedByRSAImpl = struct {
     // The signature becomes the length of the SHA256 hash after base64 decoding.
     // We're basically unwrapping or reversing the steps from the signing.
     fn decodeB64(self: Self) ![]u8 {
-        const sig = self.map.get(.sub_signature).value;
+        const sig = self.auth.get(.sub_signature).value;
         const sz = try b64.calcSizeForSlice(sig);
         // TODO double-confirm this logic because I must have read the Golang wrong
         //if (sha256_len < sz) {
@@ -173,22 +174,20 @@ const SignedByRSAImpl = struct {
     }
 };
 
-// Open PEM envelope to find DER of SubjectPublicKeyInfo
+// Open PEM envelope and convert DER to SubjectPublicKeyInfo
 pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
-    //// !struct { N: []const u8, E: []const u8 }{
-
-    // sanity check as this is not for every case of PEM
-
     const max = comptime maxPEM();
     var buffer: [max]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
     var line_buf: [80]u8 = undefined;
     var begin_marker_found = false;
-
     while (try pem.readUntilDelimiterOrEof(&line_buf, lf_literal)) |line| {
-        if (mem.startsWith(u8, line, "-----END PUBLIC KEY")) break;
-        if (mem.startsWith(u8, line, "-----BEGIN PUBLIC KEY")) {
-            begin_marker_found = true;
+        if (mem.startsWith(u8, line, "-----END ")) break;
+        if (mem.startsWith(u8, line, "-----BEGIN ")) {
+            // only care about public key
+            if (mem.endsWith(u8, line, " PUBLIC KEY-----")) {
+                begin_marker_found = true;
+            }
             continue;
         }
         if (begin_marker_found) {
@@ -196,12 +195,13 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
         }
     }
 
-    var decoded: [max]u8 = undefined;
+    var decoded: [512]u8 = undefined;
     try b64.decode(&decoded, fbs.getWritten());
-
-    // does the DER slice begin with 0x30? (sequence_tag); 48 in decimal
-    const begin = decoded[0];
-    if (begin != 0x30) return error.UnknownX509KeySpec;
+    // TODO should we return decoded here to allow a unit test?
+    // here, look at letsencrypt.org article "A Warm Welcome to ASN1 and DER"
+    // type-length-value should be 0x30 first for the sequence tag
+    if (decoded[0] != 0x30) return error.Asn1SequenceTag;
+    // todo bit set to check 8th bit (128)?
 
     const hint = decoded[1];
     var first_index: usize = 0;
@@ -298,19 +298,19 @@ fn hashPrefixes() []const u8 {
     };
 }
 
-const lf_codept = "\u{000A}";
-const lf_literal = 0x0A;
+// SHA256 creates digests of 32 bytes.
+const sha256_len: usize = 32;
 
 // limit of RSA pub key
 fn maxPEM() usize {
     // assume 4096 bits is largest RSA
     const count = 512;
-    // base64 increases by 24 bits
-    const multi = 3;
+    // base64 increases by 24 bits (or 4 x 6bit digits)
+    const multi = 4;
     return count * multi;
 }
 
-pub const SignatureError = error{
+pub const VerifierError = error{
     ErrVerification,
     NotHashedBySHA256,
     FetchNotDefined,
@@ -337,17 +337,6 @@ pub const Verb = enum(u8) {
     head = 5,
     options = 6,
 
-    // lookup table with the description
-    pub const DescrTable = [@typeInfo(Verb).Enum.fields.len][:0]const u8{
-        "get",
-        "post",
-        "put",
-        "delete",
-        "patch",
-        "head",
-        "options",
-    };
-
     // description (name) format of the enum
     pub fn toDescr(self: Verb) [:0]const u8 {
         //return DescrTable[@enumToInt(self)];
@@ -372,27 +361,18 @@ pub const Verb = enum(u8) {
         }
         unreachable;
     }
-
-    // cast enum back to raw u8
-    //fn toInt(self: Verb) u8 {
-    //    const tmp = @enumToInt(self);
-    //    return @intCast(u8, tmp);
-    //}
-    // raw u8 to enum
-    //fn fromInt(raw: u8) Verb {
-
-    //    var tmp: u8 = raw;
-    //    if (raw < 0) {
-    //        tmp = raw * -1;
-    //    }
-    //    if (tmp < 0 or tmp > 6) {
-    //        log.err("Verb enum cast, {d}", .{tmp});
-    //    }
-
-    // preserve numerical value
-    //    const uns = @intCast(u8, tmp);
-    // shorten to enum
-    //    const chop = @truncate(u8, uns);
-    //    return @intToEnum(Verb, chop);
-    //}
+    // TODO remove the table in favor of switch
+    // lookup table with the description
+    pub const DescrTable = [@typeInfo(Verb).Enum.fields.len][:0]const u8{
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "head",
+        "options",
+    };
 };
+
+const lf_codept = "\u{000A}";
+const lf_literal = 0x0A;

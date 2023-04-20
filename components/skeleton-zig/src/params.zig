@@ -3,7 +3,7 @@ const log = std.log;
 const mem = std.mem;
 const streq = std.ascii.eqlIgnoreCase;
 
-// Purpose: attempt KV pairs (headers/params)
+// Purpose: attempt pairs (headers/params)
 
 // Since the total size of headers is restricted to 8K by servers
 // (consensus according to search results), we need to have our
@@ -11,9 +11,9 @@ const streq = std.ascii.eqlIgnoreCase;
 // in order to decide whether we need to revisit.....
 
 // wrapper around raw headers
-pub const HeaderList = Rows();
-// wrapper around raw auth-params
-pub const AuthParams = Rows();
+pub const HeaderList = Params();
+// wrapper around raw auth-params (descendant values from signature header)
+pub const AuthParams = Params();
 // TODO shorthand for raw headers
 pub const RawHeaders = [128]RawField;
 pub const RawField = struct {
@@ -22,7 +22,7 @@ pub const RawField = struct {
 };
 
 // convenience layer around raw headers
-pub fn Rows() type {
+pub fn Params() type {
     return struct {
         const Self = @This();
         source: RawHeaders,

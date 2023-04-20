@@ -54,19 +54,14 @@ pub fn qryParams(allocator: Allocator, txt: []const u8) std.StringHashMap([]cons
 }
 
 // DEPRECATE
-// convenience routine for the signature header
-fn sigPairs(allocator: Allocator, raw: []const u8) std.StringHashMap([]const u8) {
-
-    // TODO ?? split w '=' is not good, since signatures contain symbol
-
-    // expect field1="val1",field2="val2"
-    const discard: ?[]const u8 = "\"";
-    return txtPairs(allocator, .{
-        .data = raw,
-        .delim = ",",
-        .trim = discard,
-    });
-}
+//fn sigPairs(allocator: Allocator, raw: []const u8) std.StringHashMap([]const u8) {
+//    const discard: ?[]const u8 = "\"";
+//    return txtPairs(allocator, .{
+//        .data = raw,
+//        .delim = ",",
+//        .trim = discard,
+//    });
+//}
 
 fn txtPairs(allocator: Allocator, option: anytype) std.StringHashMap([]const u8) {
     const data: []const u8 = option.data;
@@ -190,40 +185,35 @@ pub fn percentDecode(allocator: Allocator, ur: []const u8) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{s}", .{acc[0..shrunk_size]});
 }
 
-fn fmtAscii(old: []const u8) []const u8 {
+fn fmtAscii(from: []const u8) []const u8 {
+    const eq = std.ascii.eqlIgnoreCase;
     // TODO refactor
-    var from: [3]u8 = undefined;
-    _ = std.ascii.upperString(&from, old);
-    if (eq("%3A", &from)) return ":";
-    if (eq("%2F", &from)) return "/";
-    if (eq("%3F", &from)) return "?";
-    if (eq("%23", &from)) return "#";
-    if (eq("%5B", &from)) return "[";
-    if (eq("%5D", &from)) return "]";
-    if (eq("%40", &from)) return "@";
-    if (eq("%21", &from)) return "!";
-    if (eq("%24", &from)) return "$";
-    if (eq("%26", &from)) return "&";
-    if (eq("%27", &from)) return "'";
-    if (eq("%28", &from)) return "(";
-    if (eq("%29", &from)) return ")";
-    if (eq("%2A", &from)) return "*";
-    if (eq("%2B", &from)) return "+";
-    if (eq("%2C", &from)) return ",";
-    if (eq("%3B", &from)) return ";";
-    if (eq("%3D", &from)) return "=";
-    if (eq("%20", &from)) return " ";
+
+    if (eq("%3A", from)) return ":";
+    if (eq("%2F", from)) return "/";
+    if (eq("%3F", from)) return "?";
+    if (eq("%23", from)) return "#";
+    if (eq("%5B", from)) return "[";
+    if (eq("%5D", from)) return "]";
+    if (eq("%40", from)) return "@";
+    if (eq("%21", from)) return "!";
+    if (eq("%24", from)) return "$";
+    if (eq("%26", from)) return "&";
+    if (eq("%27", from)) return "'";
+    if (eq("%28", from)) return "(";
+    if (eq("%29", from)) return ")";
+    if (eq("%2A", from)) return "*";
+    if (eq("%2B", from)) return "+";
+    if (eq("%2C", from)) return ",";
+    if (eq("%3B", from)) return ";";
+    if (eq("%3D", from)) return "=";
+    if (eq("%20", from)) return " ";
 
     //TODO use a placeholder to do a second pass in order to prevent infinite loop
     //if eq("%25", from) return "[Z]";
 
     // unecessary encodes
-    return &from;
-}
-
-// compare strings (case/everything must match)
-fn eq(comptime s1: []const u8, s2: []const u8) bool {
-    return mem.eql(u8, s1, s2);
+    return from;
 }
 
 pub const JsonError = error{Malformed};

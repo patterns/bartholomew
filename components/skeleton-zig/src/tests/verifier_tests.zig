@@ -2,7 +2,7 @@ const std = @import("std");
 
 const lib = @import("../lib.zig");
 const vfr = @import("../verifier.zig");
-const ro = @import("../rows.zig");
+const prm = @import("../params.zig");
 const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
@@ -30,7 +30,7 @@ test "signature base input string minimal" {
     rcv.headers = raw;
 
     // wrap raw headers
-    var wrap = ro.HeaderList.init(ally, raw);
+    var wrap = prm.HeaderList.init(ally, raw);
     try wrap.catalog();
     // format sig base input
     try vfr.init(ally, raw);
@@ -66,7 +66,7 @@ test "signature base input string regular" {
     rcv.headers = raw;
 
     // wrap raw headers
-    var wrap = ro.HeaderList.init(ally, raw);
+    var wrap = prm.HeaderList.init(ally, raw);
     try wrap.catalog();
     // format sig base input
     try vfr.init(ally, raw);
@@ -103,7 +103,7 @@ test "min signature base in the form of SHA256 sum" {
     rcv.headers = raw;
 
     // wrap raw headers
-    var wrap = ro.HeaderList.init(ally, raw);
+    var wrap = prm.HeaderList.init(ally, raw);
     try wrap.catalog();
 
     // perform calculation
@@ -140,7 +140,7 @@ test "reg signature base in the form of SHA256 sum" {
     rcv.headers = raw;
 
     // wrap raw headers
-    var wrap = ro.HeaderList.init(ally, raw);
+    var wrap = prm.HeaderList.init(ally, raw);
     try wrap.catalog();
 
     // perform calculation
@@ -193,14 +193,14 @@ fn produceFromPublicKeyPEM(proxy: []const u8, ally: std.mem.Allocator) !std.cryp
 }
 
 // simulate raw header fields
-fn minRawHeaders() ro.RawHeaders {
-    var list: ro.RawHeaders = undefined;
-    list[0] = ro.RawField{ .fld = "host", .val = "example.com" };
-    list[1] = ro.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
-    list[2] = ro.RawField{ .fld = "content-type", .val = "application/json" };
-    list[3] = ro.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
-    list[4] = ro.RawField{ .fld = "content-length", .val = "18" };
-    list[5] = ro.RawField{
+fn minRawHeaders() prm.RawHeaders {
+    var list: prm.RawHeaders = undefined;
+    list[0] = prm.RawField{ .fld = "host", .val = "example.com" };
+    list[1] = prm.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
+    list[2] = prm.RawField{ .fld = "content-type", .val = "application/json" };
+    list[3] = prm.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
+    list[4] = prm.RawField{ .fld = "content-length", .val = "18" };
+    list[5] = prm.RawField{
         .fld = "signature",
         .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     };
@@ -209,14 +209,14 @@ fn minRawHeaders() ro.RawHeaders {
 }
 
 // simulate covered raw headers
-fn regRawHeaders() ro.RawHeaders {
-    var list: ro.RawHeaders = undefined;
-    list[0] = ro.RawField{ .fld = "host", .val = "example.com" };
-    list[1] = ro.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
-    list[2] = ro.RawField{ .fld = "content-type", .val = "application/json" };
-    list[3] = ro.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
-    list[4] = ro.RawField{ .fld = "content-length", .val = "18" };
-    list[5] = ro.RawField{
+fn regRawHeaders() prm.RawHeaders {
+    var list: prm.RawHeaders = undefined;
+    list[0] = prm.RawField{ .fld = "host", .val = "example.com" };
+    list[1] = prm.RawField{ .fld = "date", .val = "Sun, 05 Jan 2014 21:31:40 GMT" };
+    list[2] = prm.RawField{ .fld = "content-type", .val = "application/json" };
+    list[3] = prm.RawField{ .fld = "digest", .val = "SHA-256=X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=" };
+    list[4] = prm.RawField{ .fld = "content-length", .val = "18" };
+    list[5] = prm.RawField{
         .fld = "signature",
         .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date content-type digest content-length\",signature=\"qdx+H7PHHDZgy4y/Ahn9Tny9V3GP6YgBPyUXMmoxWtLbHpUnXS2mg2+SbrQDMCJypxBLSPQR2aAjn7ndmw2iicw3HMbe8VfEdKFYRqzic+efkb3nndiv/x1xSHDJWeSWkx3ButlYSuBskLu6kd9Fswtemr3lgdDEmn04swr2Os0=\"",
     };

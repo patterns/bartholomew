@@ -5,8 +5,8 @@ const status = @import("status.zig");
 const config = @import("config.zig");
 const redis = @import("redis.zig");
 const vfr = @import("verifier.zig");
-// TODO organize imports
-const ro = @import("rows.zig");
+
+const ro = @import("params.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log;
 
