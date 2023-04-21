@@ -4,7 +4,7 @@ const std = @import("std");
 //const outbox = @import("outbox.zig");
 const inbox = @import("inbox.zig");
 
-const ro = @import("params.zig");
+const phi = @import("phi.zig");
 const Allocator = std.mem.Allocator;
 
 //TODO think interface
@@ -152,18 +152,17 @@ const xdata = struct {
 };
 
 // list conversion from C arrays
-fn xlist(addr: WasiAddr, rowcount: i32) !ro.RawHeaders {
+fn xlist(addr: WasiAddr, rowcount: i32) !phi.RawHeaders {
     var record = @intToPtr([*c]WasiTuple, @intCast(usize, addr));
     const max = @intCast(usize, rowcount);
-    var list: ro.RawHeaders = undefined;
+    var list: phi.RawHeaders = undefined;
 
     var rownum: usize = 0;
     while (rownum < max) : (rownum +%= 1) {
         var tup = record[rownum];
         //const fld = try ally.dupeZ(u8, tup.f0.ptr[0..tup.f0.len]);
         //const val = try ally.dupeZ(u8, tup.f1.ptr[0..tup.f1.len]);
-        ////var fld: [_]u8 = try ally.alloc(u8, tup.f0.len);
-        ////var val: [_]u8 = try ally.alloc(u8, tup.f1.len);
+
         // some arbitrary limits on field lengths (until we achieve sig header)
         std.debug.assert(tup.f0.len < 64);
         std.debug.assert(tup.f1.len < 256);
@@ -172,8 +171,7 @@ fn xlist(addr: WasiAddr, rowcount: i32) !ro.RawHeaders {
         _ = try std.fmt.bufPrintZ(&fld, "{s}", .{tup.f0.ptr[0..tup.f0.len]});
         _ = try std.fmt.bufPrintZ(&val, "{s}", .{tup.f1.ptr[0..tup.f1.len]});
 
-        ////try list.append(ally, ro.RawField{ .fld = fld, .val = val });
-        list[rownum] = ro.RawField{ .fld = &fld, .val = &val };
+        list[rownum] = phi.RawField{ .fld = &fld, .val = &val };
 
         // free old kv
         CanonicalAbiFree(@ptrCast(?*anyopaque, tup.f0.ptr), tup.f0.len, 1);
@@ -262,8 +260,8 @@ pub const SpinRequest = struct {
     ally: Allocator,
     method: HttpMethod,
     uri: []const u8,
-    headers: ro.RawHeaders,
-    params: ro.RawHeaders,
+    headers: phi.RawHeaders,
+    params: phi.RawHeaders,
     body: *std.io.FixedBufferStream([]u8),
 
     // instantiate from C/interop (using addresses)
@@ -289,10 +287,6 @@ pub const SpinRequest = struct {
         if (bodyEnable == 1) {
             var cbod = xdata.init(bodyAddr, bodyLen);
             content_body = std.io.fixedBufferStream(cbod.ptr[0..cbod.len]);
-            //content_body.appendSlice(ally, cbod.ptr[0..cbod.len]) catch {
-            //    @panic("FAIL copying body from C addr");
-            //};
-            //cbod.deinit();
         }
 
         var req_headers = xlist(hdrAddr, hdrLen) catch {

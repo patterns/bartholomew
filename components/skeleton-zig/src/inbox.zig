@@ -6,7 +6,7 @@ const config = @import("config.zig");
 const redis = @import("redis.zig");
 const vfr = @import("verifier.zig");
 
-const ro = @import("params.zig");
+const phi = @import("phi.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log;
 
@@ -51,8 +51,8 @@ const InboxImpl = struct {
 fn unknownSignature(ally: Allocator, req: lib.SpinRequest) !bool {
     const bad = true;
 
-    var placeholder: ro.RawHeaders = undefined;
-    var wrap = ro.HeaderList.init(ally, placeholder);
+    var placeholder: phi.RawHeaders = undefined;
+    var wrap = phi.HeaderList.init(ally, placeholder);
 
     try vfr.init(ally, placeholder);
 

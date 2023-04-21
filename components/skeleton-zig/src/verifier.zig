@@ -2,11 +2,11 @@ const std = @import("std");
 
 const snip = @import("modules/rsa/snippet.zig");
 const lib = @import("lib.zig");
-const prm = @import("params.zig");
+const phi = @import("phi.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const b64 = std.base64.standard.Decoder;
 const log = std.log;
+const b64 = std.base64.standard.Decoder;
 const streq = std.ascii.eqlIgnoreCase;
 
 // Reminder, _Verifier_ rename here is to emphasize that our concern is
@@ -19,8 +19,8 @@ const Impl = struct { produce: ProduceVerifierFn };
 var impl = ByRSASignerImpl{ .auth = undefined, .publicKey = undefined };
 var produce: ProduceVerifierFn = undefined;
 
-pub fn init(ally: Allocator, raw: prm.RawHeaders) !void {
-    impl.auth = prm.AuthParams.init(ally, raw);
+pub fn init(ally: Allocator, raw: phi.RawHeaders) !void {
+    impl.auth = phi.AuthParams.init(ally, raw);
     try impl.auth.preverify();
 }
 
@@ -36,7 +36,7 @@ pub fn attachFetch(fetch: ProduceVerifierFn) void {
 }
 
 // calculate SHA256 sum of signature base input str
-pub fn sha256Base(req: lib.SpinRequest, headers: prm.HeaderList) ![sha256_len]u8 {
+pub fn sha256Base(req: lib.SpinRequest, headers: phi.HeaderList) ![sha256_len]u8 {
     var buffer: [sha256_len]u8 = undefined;
     const base = try impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
     std.crypto.hash.sha2.Sha256.hash(base, &buffer, .{});
@@ -44,7 +44,7 @@ pub fn sha256Base(req: lib.SpinRequest, headers: prm.HeaderList) ![sha256_len]u8
 }
 
 // reconstruct the signature base input str
-pub fn fmtBase(req: lib.SpinRequest, headers: prm.HeaderList) ![]const u8 {
+pub fn fmtBase(req: lib.SpinRequest, headers: phi.HeaderList) ![]const u8 {
     return impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 }
 
@@ -73,7 +73,7 @@ pub fn produceVerifier(ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
 const ByRSASignerImpl = struct {
     const Self = @This();
 
-    auth: prm.AuthParams,
+    auth: phi.AuthParams,
     publicKey: std.crypto.Certificate.rsa.PublicKey,
 
     // reconstruct input-string
@@ -81,7 +81,7 @@ const ByRSASignerImpl = struct {
         self: Self,
         verb: Verb,
         uri: []const u8,
-        headers: prm.HeaderList,
+        headers: phi.HeaderList,
     ) ![]const u8 {
         // each signature subheader has its value encased in quotes
         const shd = self.auth.get(.sub_headers).value;
@@ -119,7 +119,7 @@ const ByRSASignerImpl = struct {
                 try out.print("\u{000A}digest: {s}", .{digest});
             } else {
                 // TODO handle USER-DEFINED
-                const kind = prm.Kind.fromDescr(base_el);
+                const kind = phi.Kind.fromDescr(base_el);
                 const val = headers.get(kind).value;
 
                 const lower = base_el;
@@ -195,49 +195,32 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
         }
     }
 
+    const pubpem = fbs.getWritten();
+    const decoded_size = try b64.calcSizeForSlice(pubpem);
     var decoded: [512]u8 = undefined;
-    try b64.decode(&decoded, fbs.getWritten());
-    // TODO should we return decoded here to allow a unit test?
-    // here, look at letsencrypt.org article "A Warm Welcome to ASN1 and DER"
-    // type-length-value should be 0x30 first for the sequence tag
+    try b64.decode(&decoded, pubpem);
+
+    // type-length-value begins 0x30 for the sequence tag
     if (decoded[0] != 0x30) return error.Asn1SequenceTag;
-    // todo bit set to check 8th bit (128)?
 
-    const hint = decoded[1];
-    var first_index: usize = 0;
-    var length: usize = 0;
-    // can be 1/2/3 bytes to represent length; larger than 127 will be multi byte
-    if (hint <= 0x7F) {
-        first_index = 2;
-        length = hint;
-        log.debug("der length, single byte {d}", .{hint});
-    } else if (hint == 0x81) {
-        first_index = 3;
-        length = decoded[2];
-        log.debug("der length, double byte {d}", .{length});
-    } else if (hint == 0x82) {
-        first_index = 4;
-        const hi_bits: usize = decoded[2];
-        const lo_bits: usize = decoded[3];
-        const shifted = @shlExact(hi_bits, @bitSizeOf(u8));
-        length = shifted | lo_bits;
-        log.debug("der length, triple byte {d}", .{length});
-    } else {
-        log.err("der length exceeded", .{});
-        std.debug.assert(unreachable);
-    }
+    var len_tup = derLength(decoded, 1, decoded_size);
+    var eol: usize = len_tup.eol;
+    var total: usize = len_tup.total;
 
-    // SPKI is after the length encoding
-    const last_index = first_index + length;
-    const spki = decoded[first_index..last_index];
+    // SPKI starts after the length encoding
+    const stop = eol + total;
+    const spki = decoded[eol..stop];
+
+    // TODO should we separate the spki parse?
+    // (it looks simpl-er because we *assume* only rsa pubkeys)
+    log.warn("spki, {any}", .{std.fmt.fmtSliceHexUpper(spki[0..14])});
 
     // at algorithm-identifier (OID)
     ////const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
     var check: []u8 = undefined;
     var bit_str: []u8 = undefined;
     var data: []u8 = undefined;
-
-    //TODO debug more safety on N/E
+    var sub_len: usize = undefined;
 
     const tag = spki[0];
     if (tag == 0x30 and spki[1] == 0x0D) {
@@ -250,7 +233,7 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
             const hi_bits: usize = bit_str[2];
             const lo_bits: usize = bit_str[3];
             const shifted: usize = @shlExact(hi_bits, @bitSizeOf(u8));
-            length = shifted | lo_bits;
+            sub_len = shifted | lo_bits;
             //const stop_index = 5 + length;
             //data = bit_str[5..stop_index];
 
@@ -262,6 +245,58 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
     }
 
     return error.PublicKeyPemParse;
+}
+
+// extract total length from DER
+fn derLength(der: [512]u8, len_start: usize, der_max: usize) struct { eol: usize, total: usize } {
+    var length_marker: usize = len_start + 1;
+    var length_total: usize = @intCast(usize, der[len_start]);
+    if (length_total < 0x80) {
+        // short form of the length (0-127)
+        // fits in (low bits of) single byte (der[len_start])
+        return .{ .eol = length_marker, .total = length_total };
+    }
+
+    // 8th-bit-on means the len slot is counted in bits 7-1
+    const more_bytes_count: usize = length_total - 0x80;
+    std.debug.assert(more_bytes_count != 0);
+
+    switch (more_bytes_count) {
+        1 => {
+            log.warn("additional bytes (1)", .{});
+            // total is the value in the single byte
+            // der[ len_start + 1 ]
+            // which should be in the range 127-256
+            const len_at = len_start + 1;
+            length_marker = len_at + 1;
+            length_total = @intCast(usize, der[len_at]);
+        },
+        2 => {
+            log.warn("additional bytes (2)", .{});
+            // total is the value in the double byte
+            // der[ (len_start + 1) .. (len_start + 2) ]
+            // which should be in the range 257-65536
+            const len_at = len_start + 1;
+            length_marker = len_at + 2;
+
+            const hi_bits: usize = der[len_at];
+            const lo_bits: usize = der[len_at + 1];
+            const shifted = @shlExact(hi_bits, @bitSizeOf(u8));
+            length_total = shifted | lo_bits;
+        },
+        else => unreachable,
+        // if this was reachable, total bytes would be > 65536
+        // which is unexpected because 512 bytes is the limit
+    }
+
+    // DER forbids the range where long form overlaps with short
+    std.debug.assert(length_total > 127);
+
+    log.warn("eol {d}, total {d} (max {d})", .{ length_marker, length_total, der_max });
+    // verify total is <= actual data stream (because can't provide what we don't have)
+    std.debug.assert((length_marker + length_total) <= der_max);
+
+    return .{ .eol = length_marker, .total = length_total };
 }
 
 fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
