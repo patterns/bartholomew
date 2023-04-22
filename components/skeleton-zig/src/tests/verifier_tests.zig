@@ -224,7 +224,7 @@ fn regRawHeaders() phi.RawHeaders {
     return list;
 }
 
-const pubPEM =
+const test_pub_PEM =
     \\-----BEGIN PUBLIC KEY-----
     \\MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAlRuRnThUjU8/prwYxbty
     \\WPT9pURI3lbsKMiB6Fn/VHOKE13p4D8xgOCADpdRagdT6n4etr9atzDKUSvpMtR3
@@ -248,4 +248,12 @@ var public_key_PEM =
     \\Z4UMR7EOcpfdUE9Hf3m/hs+FUR45uBJeDK1HSFHD8bHKD6kv8FPGfJTotc+2xjJw
     \\oYi+1hqp1fIekaxsyQIDAQAB
     \\-----END PUBLIC KEY-----
+;
+
+const public_eff_PEM =
+    \\-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnhyUS/D2bQ9tMYjEE6Ub\nj00b7zn8LIh/Za/WYfyNAUENt6SxMODA4EPabOBkj0dh+ZTBntRygaq8BFHE6GuM\nY3a/VmxtdWKQcMEG8mpC07lMlHs9xpeHCeZpzsBN3SMOWp6j7/lED/rzbV1RBxSA\nm3mCR4elE0VspPaZTbNh/6wSyB0OhLYVTUy7GGEedXhI0WDDkkRq+VB2fszNFB5Q\np3ZIQqu4197kg8WzAxoSmp/rYkreNUCXmcXprhTZrrgOrdVzWRdP6CXjkO/K/zFe\nZS6rztAjnMyuMv8BRCHkfnthxz4va1kHo6kVRr117tOaBDBaxFmmmC7PKqTRvqXP\nbQIDAQAB\n-----END PUBLIC KEY-----\n
+;
+
+const public_adafruit_PEM =
+    \\-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAspBrYNk+vSWi8taRt8rW\nFLyg+y5bC4ZA+mIXGd3RLEm0fjXzi90N4iHxM6zwtdEO1dLbuj8KDbpC5rDpEMfx\nMBmvmJVpvbVbZclOUKpNLIKdkPmPFKDCNpNUgGSk+q8IISkaAX6o3bAu9magy6ix\ntNo8UBYa+IkqOJDbehh1C5gf/4REyuuSyYXIqjlWN6AoHBVglDTkxGyIQ2kjFRPh\n1U5Wrlmu2O/vg3GH9zHn++iz5vKnMm9Incr8TqqklCuklNXxb/cICWolWTOILanY\nWlMT3QUOvW7yaJGWe9Ph7z59SqKGTQfnGfMY1F+5LLO0KhjrBDc5DCMy+F4SP2XX\nMwIDAQAB\n-----END PUBLIC KEY-----\n
 ;

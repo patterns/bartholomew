@@ -196,59 +196,55 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
     }
 
     const pubpem = fbs.getWritten();
-    const decoded_size = try b64.calcSizeForSlice(pubpem);
-    var decoded: [512]u8 = undefined;
-    try b64.decode(&decoded, pubpem);
+    const deB64_size = try b64.calcSizeForSlice(pubpem);
+    var deB64: [512]u8 = undefined;
+    try b64.decode(&deB64, pubpem);
 
-    // type-length-value begins 0x30 for the sequence tag
-    if (decoded[0] != 0x30) return error.Asn1SequenceTag;
+    // type-length-value begins 0x30 (sequence tag)
+    if (deB64[0] != 0x30) return error.Asn1SequenceTag;
 
-    var len_tup = derLength(decoded, 1, decoded_size);
-    var eol: usize = len_tup.eol;
-    var total: usize = len_tup.total;
+    const len_tup = derLength(&deB64, 1, deB64_size);
+    // spki starts after length encoding
+    const spki_at: usize = len_tup.eol;
+    const spki_total: usize = len_tup.total;
+    const spki_end = spki_at + spki_total;
+    const spki = deB64[spki_at..spki_end];
 
-    // SPKI starts after the length encoding
-    const stop = eol + total;
-    const spki = decoded[eol..stop];
+    // algorithm-identifier (OID)
+    const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
 
-    // TODO should we separate the spki parse?
-    // (it looks simpl-er because we *assume* only rsa pubkeys)
-    log.warn("spki, {any}", .{std.fmt.fmtSliceHexUpper(spki[0..14])});
+    // type-length-value begins 0x30 (sequence tag)
+    if (spki[0] != 0x30) return error.SpkiSequenceTag;
 
-    // at algorithm-identifier (OID)
-    ////const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
-    var check: []u8 = undefined;
-    var bit_str: []u8 = undefined;
-    var data: []u8 = undefined;
-    var sub_len: usize = undefined;
+    const len_alg = derLength(spki, 1, spki_total);
+    const alg_at: usize = len_alg.eol;
+    const alg_total: usize = len_alg.total;
+    const alg_end = alg_at + alg_total;
+    const alg = spki[alg_at..alg_end];
 
-    const tag = spki[0];
-    if (tag == 0x30 and spki[1] == 0x0D) {
-        // tag means sequence and 0x0D means field is 13 bytes
-        //if (mem.eql(u8, &rsa_alg, spki[2..14])) {
-        check = spki[2..14];
-        bit_str = spki[15..];
-        // should begin 0x03 and length
-        if (bit_str[0] == 0x03 and bit_str[1] == 0x82) {
-            const hi_bits: usize = bit_str[2];
-            const lo_bits: usize = bit_str[3];
-            const shifted: usize = @shlExact(hi_bits, @bitSizeOf(u8));
-            sub_len = shifted | lo_bits;
-            //const stop_index = 5 + length;
-            //data = bit_str[5..stop_index];
+    if (alg_total == 0x0D) {
+        // 0x0D means field is 13 bytes
+        if (mem.eql(u8, &rsa_alg, alg)) {
+            const bit_str = spki[alg_end..spki_total];
+            log.warn("potential bitstr, {any}", .{std.fmt.fmtSliceHexUpper(bit_str)});
 
-            data = bit_str[5..];
+            if (bit_str[0] != 0x30) return error.BitStrSequenceTag;
+
+            const len_bits = derLength(bit_str, 1, spki_total - alg_total);
+            const bits_at: usize = len_bits.eol;
+            const bits_total: usize = len_bits.total;
+            const bits_end = bits_at + bits_total;
+            const data = bit_str[bits_at..bits_end];
             const tmp = try std.crypto.Certificate.rsa.PublicKey.parseDer(data);
             return std.crypto.Certificate.rsa.PublicKey.fromBytes(data, tmp.modulus, ally);
         }
-        //}
     }
 
-    return error.PublicKeyPemParse;
+    return error.PublicKeyDer;
 }
 
 // extract total length from DER
-fn derLength(der: [512]u8, len_start: usize, der_max: usize) struct { eol: usize, total: usize } {
+fn derLength(der: []u8, len_start: usize, der_max: usize) struct { eol: usize, total: usize } {
     var length_marker: usize = len_start + 1;
     var length_total: usize = @intCast(usize, der[len_start]);
     if (length_total < 0x80) {
@@ -266,7 +262,7 @@ fn derLength(der: [512]u8, len_start: usize, der_max: usize) struct { eol: usize
             log.warn("additional bytes (1)", .{});
             // total is the value in the single byte
             // der[ len_start + 1 ]
-            // which should be in the range 127-256
+            // which should be in the range 128-255
             const len_at = len_start + 1;
             length_marker = len_at + 1;
             length_total = @intCast(usize, der[len_at]);
@@ -275,7 +271,7 @@ fn derLength(der: [512]u8, len_start: usize, der_max: usize) struct { eol: usize
             log.warn("additional bytes (2)", .{});
             // total is the value in the double byte
             // der[ (len_start + 1) .. (len_start + 2) ]
-            // which should be in the range 257-65536
+            // which should be in the range 256-65535
             const len_at = len_start + 1;
             length_marker = len_at + 2;
 
@@ -285,15 +281,16 @@ fn derLength(der: [512]u8, len_start: usize, der_max: usize) struct { eol: usize
             length_total = shifted | lo_bits;
         },
         else => unreachable,
-        // if this was reachable, total bytes would be > 65536
-        // which is unexpected because 512 bytes is the limit
+        // if this was reachable, total bytes would be > 65535
+        // which is unexpected because 512 bytes is limit atm
     }
 
     // DER forbids the range where long form overlaps with short
     std.debug.assert(length_total > 127);
 
     log.warn("eol {d}, total {d} (max {d})", .{ length_marker, length_total, der_max });
-    // verify total is <= actual data stream (because can't provide what we don't have)
+    // verify the extracted total is less (or eq) actual data stream
+    // where der_max is the actual available (from PEM file).
     std.debug.assert((length_marker + length_total) <= der_max);
 
     return .{ .eol = length_marker, .total = length_total };
