@@ -174,8 +174,7 @@ const ByRSASignerImpl = struct {
     }
 };
 
-// Open PEM envelope and convert DER to SubjectPublicKeyInfo
-pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
+pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader) !std.crypto.Certificate.rsa.PublicKey {
     const max = comptime maxPEM();
     var buffer: [max]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -196,52 +195,57 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
     }
 
     const pubpem = fbs.getWritten();
-    const deB64_size = try b64.calcSizeForSlice(pubpem);
-    var deB64: [512]u8 = undefined;
-    try b64.decode(&deB64, pubpem);
+    var der_bytes: [512]u8 = undefined;
+    try b64.decode(&der_bytes, pubpem);
 
     // type-length-value begins 0x30 (sequence tag)
-    if (deB64[0] != 0x30) return error.Asn1SequenceTag;
+    if (der_bytes[0] != 0x30) return error.Asn1SequenceTag;
 
-    const len_tup = derLength(&deB64, 1, deB64_size);
-    // spki starts after length encoding
-    const spki_at: usize = len_tup.eol;
-    const spki_total: usize = len_tup.total;
-    const spki_end = spki_at + spki_total;
-    const spki = deB64[spki_at..spki_end];
+    const cert = std.crypto.Certificate;
+    const dere = cert.der.Element;
+    const spki_el = try dere.parse(&der_bytes, 0);
+    const algo_el = try dere.parse(&der_bytes, spki_el.slice.start);
+    const bits_el = try dere.parse(&der_bytes, algo_el.slice.end);
+    const cb = cert{ .buffer = &der_bytes, .index = undefined };
+    const pub_key = try cert.parseBitString(cb, bits_el);
 
-    // algorithm-identifier (OID)
-    const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
+    //log.warn("parsed bits, ({d}-{d}); {any}", .{
+    //    pub_key.start, pub_key.end,
+    //    std.fmt.fmtSliceHexUpper( der_bytes[pub_key.start..pub_key.end] )});
 
-    // type-length-value begins 0x30 (sequence tag)
-    if (spki[0] != 0x30) return error.SpkiSequenceTag;
+    // TODO okay so at this pt, the pub key seems viable
+    //      we need to return the offsets of the bit string AND the algo info
+    //      i think it's named  `Parsed`  in the std lib
+    //      (but not sure we use that because we need to avoid giving impression
+    //      our results can be used outside our verifier purposes)
 
-    const len_alg = derLength(spki, 1, spki_total);
-    const alg_at: usize = len_alg.eol;
-    const alg_total: usize = len_alg.total;
-    const alg_end = alg_at + alg_total;
-    const alg = spki[alg_at..alg_end];
-
-    if (alg_total == 0x0D) {
-        // 0x0D means field is 13 bytes
-        if (mem.eql(u8, &rsa_alg, alg)) {
-            const bit_str = spki[alg_end..spki_total];
-            log.warn("potential bitstr, {any}", .{std.fmt.fmtSliceHexUpper(bit_str)});
-
-            if (bit_str[0] != 0x30) return error.BitStrSequenceTag;
-
-            const len_bits = derLength(bit_str, 1, spki_total - alg_total);
-            const bits_at: usize = len_bits.eol;
-            const bits_total: usize = len_bits.total;
-            const bits_end = bits_at + bits_total;
-            const data = bit_str[bits_at..bits_end];
-            const tmp = try std.crypto.Certificate.rsa.PublicKey.parseDer(data);
-            return std.crypto.Certificate.rsa.PublicKey.fromBytes(data, tmp.modulus, ally);
-        }
-    }
+    // check rsa (experiment)
+    const pk_components = try cert.rsa.PublicKey.parseDer(cb.buffer[pub_key.start..pub_key.end]);
+    //return std.crypto.Certificate.rsa.PublicKey.fromBytes(data, tmp.modulus, ally);
+    log.warn("E {any}, N {any}", .{
+        std.fmt.fmtSliceHexLower(pk_components.exponent),
+        std.fmt.fmtSliceHexLower(pk_components.modulus),
+    });
 
     return error.PublicKeyDer;
 }
+
+// Open PEM envelope and convert DER to SubjectPublicKeyInfo
+//pub fn fromPEM001(pem: std.io.FixedBufferStream([]const u8).Reader )
+// !std.crypto.Certificate.rsa.PublicKey {
+//    const len_tup = derLength(&der_bytes, 1, der_size);
+// spki starts after length encoding
+//    const spki_at: usize = len_tup.eol;
+//    const spki_total: usize = len_tup.total;
+//    const spki_end = spki_at + spki_total;
+//    const spki = der_bytes[spki_at..spki_end];
+// algorithm-identifier (OID)
+//    const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
+
+// type-length-value begins 0x30 (sequence tag)
+//    if (spki[0] != 0x30) return error.SpkiSequenceTag;
+//    return error.PublicKeyDer;
+//}
 
 // extract total length from DER
 fn derLength(der: []u8, len_start: usize, der_max: usize) struct { eol: usize, total: usize } {

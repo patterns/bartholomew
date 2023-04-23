@@ -186,10 +186,11 @@ test "produce verifier (pub) key" {
 fn produceFromPublicKeyPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypto.Certificate.rsa.PublicKey {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
+    _ = ally;
 
     var fbs = std.io.fixedBufferStream(public_key_PEM);
 
-    return vfr.fromPEM(fbs.reader(), ally);
+    return vfr.fromPEM(fbs.reader());
 }
 
 // simulate raw header fields
