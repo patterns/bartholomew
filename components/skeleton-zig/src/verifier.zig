@@ -174,6 +174,7 @@ const ByRSASignerImpl = struct {
     }
 };
 
+// namespace short aliases
 const cert = std.crypto.Certificate;
 const dere = cert.der.Element;
 
@@ -211,22 +212,14 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
     const pub_key = try cert.parseBitString(cb, bits_el);
 
     // i think we need a tagged union between Ed25519 and RSA pub-key (w algo_el)
-    // TODO okay so at this pt, the pub key seems viable
-    //      we need to return the offsets of the bit string AND the algo info
-    //      i think it's named  `Parsed`  in the std lib
-    //      (but not sure we use that because we need to avoid giving impression
-    //      our results can be used outside our verifier purposes)
+    const pub_slice = cb.buffer[pub_key.start..pub_key.end];
+    const pk_components = try cert.rsa.PublicKey.parseDer(pub_slice);
 
-    // check rsa (experiment)
-    const pk_components = try cert.rsa.PublicKey.parseDer(cb.buffer[pub_key.start..pub_key.end]);
-    log.warn("e {d}, n {any}", .{
-        std.fmt.fmtSliceHexLower(pk_components.exponent),
-        std.fmt.fmtSliceHexLower(pk_components.modulus),
-    });
-    var rsapk = try cert.rsa.PublicKey.fromBytes(cb.buffer[pub_key.start..pub_key.end], pk_components.modulus, ally);
-    ////const extxt = try rsapk.e.toString(ally, 16, std.fmt.Case.upper);
-    ////log.warn("E {s}, N {any}", .{ extxt, rsapk.n });
-    return rsapk;
+    //log.warn("e {d}, n {any}", .{
+    //    std.fmt.fmtSliceHexLower(pk_components.exponent),
+    //    std.fmt.fmtSliceHexLower(pk_components.modulus),
+    //});
+    return try cert.rsa.PublicKey.fromBytes(pub_slice, pk_components.modulus, ally);
 }
 
 // Open PEM envelope and convert DER to SubjectPublicKeyInfo
