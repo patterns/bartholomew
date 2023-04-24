@@ -156,7 +156,7 @@ test "reg signature base in the form of SHA256 sum" {
 
 // obtaining the verifier key usually requires a network trip so we make the step
 // accept a "harvest" function which is the purpose of this test
-test "produce verifier (pub) key" {
+test "produce verifier rsa" {
     // TODO clean up memory leak
     //const ally = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -170,14 +170,53 @@ test "produce verifier (pub) key" {
     try vfr.init(ally, raw);
     vfr.attachFetch(produceFromPublicKeyPEM);
     var vkey = try vfr.produceVerifier(ally);
+    defer vkey.deinit();
 
-    var int_e: usize = undefined;
-    if (vkey.e.fits(usize)) {
-        int_e = try vkey.e.to(usize);
-    }
+    // modulus as string
+    const modtxt = try vkey.n.toString(ally, 10, std.fmt.Case.upper);
+    try expectStr("136287014989608765893123126038106572662775969591951227130418898610855192325348933630885960405684877794822018571580683189422700394681986953780776002189134127788826182440724839043317920353954669979929011493094302864518238564874305630519223810399534512757200334611583365920204719997149421452315257365248562982089", modtxt);
 
-    // match known properties of the test key
-    try std.testing.expectEqual(int_e, 65537);
+    // TODO expected exponent '65537' (ask for help?)
+}
+test "produce verifier eff" {
+    // TODO clean up memory leak
+    //const ally = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
+
+    // minimal headers
+    var raw = minRawHeaders();
+
+    // fake public key via our custom harvester
+    try vfr.init(ally, raw);
+    vfr.attachFetch(produceFromEFFPEM);
+    var vkey = try vfr.produceVerifier(ally);
+    defer vkey.deinit();
+
+    // modulus as string
+    const modtxt = try vkey.n.toString(ally, 10, std.fmt.Case.upper);
+    try expectStr("19959745154717260766510463162970710631663779706865741160613921920435198377669499241147026536329436882612052228253583784306606573942618214251040679639065815859836226591094607170357852600947616568746275862413065385149717970244738004652546695884680785830372485548560800434022650933424341378162731829435201718727230410102380634535995195109526898585440535352317797613836457677131435531780171344963088904510086645739642769505138649692114641475287574785612115032442996390738542433212013867772270704780375477017383131473008970986931683136509333049977699126195960445604467573205716311271669820991682802880620492258712505143149", modtxt);
+}
+test "produce verifier adafruit" {
+    // TODO clean up memory leak
+    //const ally = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
+
+    // minimal headers
+    var raw = minRawHeaders();
+
+    // fake public key via our custom harvester
+    try vfr.init(ally, raw);
+    vfr.attachFetch(produceFromAdafruitPEM);
+    var vkey = try vfr.produceVerifier(ally);
+    defer vkey.deinit();
+
+    // modulus as string
+    const modtxt = try vkey.n.toString(ally, 10, std.fmt.Case.upper);
+    try expectStr("22541634167300894830429877870905611113467892885325984703149971271335901157143961493096015008757236032148800349683239880541366618454668309123463357922693759993591987075346602073283379840223082159701545870699227513706551658115102046155398425663840779422599828982407108664307549899675381358628510413453975750624683116301398804174698302368992447502014840264611043031502373275172644048673501733726274629021449854038511149615792732543199503156216765007897587697069326937541198241807010358067180969750501119690587482393731216630646107288897166496790769431037525531451238923734209354350547835555926330207550730576901133686579", modtxt);
 }
 
 ////    return error.SkipZigTest;
@@ -186,11 +225,20 @@ test "produce verifier (pub) key" {
 fn produceFromPublicKeyPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypto.Certificate.rsa.PublicKey {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
-    _ = ally;
-
     var fbs = std.io.fixedBufferStream(public_key_PEM);
-
-    return vfr.fromPEM(fbs.reader());
+    return vfr.fromPEM(fbs.reader(), ally);
+}
+fn produceFromEFFPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypto.Certificate.rsa.PublicKey {
+    // skip network trip that would normally connect to proxy/provider
+    _ = proxy;
+    var fbs = std.io.fixedBufferStream(public_eff_PEM);
+    return vfr.fromPEM(fbs.reader(), ally);
+}
+fn produceFromAdafruitPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypto.Certificate.rsa.PublicKey {
+    // skip network trip that would normally connect to proxy/provider
+    _ = proxy;
+    var fbs = std.io.fixedBufferStream(public_adafruit_PEM);
+    return vfr.fromPEM(fbs.reader(), ally);
 }
 
 // simulate raw header fields
@@ -225,23 +273,6 @@ fn regRawHeaders() phi.RawHeaders {
     return list;
 }
 
-const test_pub_PEM =
-    \\-----BEGIN PUBLIC KEY-----
-    \\MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAlRuRnThUjU8/prwYxbty
-    \\WPT9pURI3lbsKMiB6Fn/VHOKE13p4D8xgOCADpdRagdT6n4etr9atzDKUSvpMtR3
-    \\CP5noNc97WiNCggBjVWhs7szEe8ugyqF23XwpHQ6uV1LKH50m92MbOWfCtjU9p/x
-    \\qhNpQQ1AZhqNy5Gevap5k8XzRmjSldNAFZMY7Yv3Gi+nyCwGwpVtBUwhuLzgNFK/
-    \\yDtw2WcWmUU7NuC8Q6MWvPebxVtCfVp/iQU6q60yyt6aGOBkhAX0LpKAEhKidixY
-    \\nP9PNVBvxgu3XZ4P36gZV6+ummKdBVnc3NqwBLu5+CcdRdusmHPHd5pHf4/38Z3/
-    \\6qU2a/fPvWzceVTEgZ47QjFMTCTmCwNt29cvi7zZeQzjtwQgn4ipN9NibRH/Ax/q
-    \\TbIzHfrJ1xa2RteWSdFjwtxi9C20HUkjXSeI4YlzQMH0fPX6KCE7aVePTOnB69I/
-    \\a9/q96DiXZajwlpq3wFctrs1oXqBp5DVrCIj8hU2wNgB7LtQ1mCtsYz//heai0K9
-    \\PhE4X6hiE0YmeAZjR0uHl8M/5aW9xCoJ72+12kKpWAa0SFRWLy6FejNYCYpkupVJ
-    \\yecLk/4L1W0l6jQQZnWErXZYe0PNFcmwGXy1Rep83kfBRNKRy5tvocalLlwXLdUk
-    \\AIU+2GKjyT3iMuzZxxFxPFMCAwEAAQ==
-    \\-----END PUBLIC KEY-----
-;
-
 var public_key_PEM =
     \\-----BEGIN PUBLIC KEY-----
     \\MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCFENGw33yGihy92pDjZQhl0C3
@@ -252,9 +283,25 @@ var public_key_PEM =
 ;
 
 const public_eff_PEM =
-    \\-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnhyUS/D2bQ9tMYjEE6Ub\nj00b7zn8LIh/Za/WYfyNAUENt6SxMODA4EPabOBkj0dh+ZTBntRygaq8BFHE6GuM\nY3a/VmxtdWKQcMEG8mpC07lMlHs9xpeHCeZpzsBN3SMOWp6j7/lED/rzbV1RBxSA\nm3mCR4elE0VspPaZTbNh/6wSyB0OhLYVTUy7GGEedXhI0WDDkkRq+VB2fszNFB5Q\np3ZIQqu4197kg8WzAxoSmp/rYkreNUCXmcXprhTZrrgOrdVzWRdP6CXjkO/K/zFe\nZS6rztAjnMyuMv8BRCHkfnthxz4va1kHo6kVRr117tOaBDBaxFmmmC7PKqTRvqXP\nbQIDAQAB\n-----END PUBLIC KEY-----\n
+    \\-----BEGIN PUBLIC KEY-----
+    \\MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnhyUS/D2bQ9tMYjEE6Ub
+    \\j00b7zn8LIh/Za/WYfyNAUENt6SxMODA4EPabOBkj0dh+ZTBntRygaq8BFHE6GuM
+    \\Y3a/VmxtdWKQcMEG8mpC07lMlHs9xpeHCeZpzsBN3SMOWp6j7/lED/rzbV1RBxSA
+    \\m3mCR4elE0VspPaZTbNh/6wSyB0OhLYVTUy7GGEedXhI0WDDkkRq+VB2fszNFB5Q
+    \\p3ZIQqu4197kg8WzAxoSmp/rYkreNUCXmcXprhTZrrgOrdVzWRdP6CXjkO/K/zFe
+    \\ZS6rztAjnMyuMv8BRCHkfnthxz4va1kHo6kVRr117tOaBDBaxFmmmC7PKqTRvqXP
+    \\bQIDAQAB
+    \\-----END PUBLIC KEY-----
 ;
 
 const public_adafruit_PEM =
-    \\-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAspBrYNk+vSWi8taRt8rW\nFLyg+y5bC4ZA+mIXGd3RLEm0fjXzi90N4iHxM6zwtdEO1dLbuj8KDbpC5rDpEMfx\nMBmvmJVpvbVbZclOUKpNLIKdkPmPFKDCNpNUgGSk+q8IISkaAX6o3bAu9magy6ix\ntNo8UBYa+IkqOJDbehh1C5gf/4REyuuSyYXIqjlWN6AoHBVglDTkxGyIQ2kjFRPh\n1U5Wrlmu2O/vg3GH9zHn++iz5vKnMm9Incr8TqqklCuklNXxb/cICWolWTOILanY\nWlMT3QUOvW7yaJGWe9Ph7z59SqKGTQfnGfMY1F+5LLO0KhjrBDc5DCMy+F4SP2XX\nMwIDAQAB\n-----END PUBLIC KEY-----\n
+    \\-----BEGIN PUBLIC KEY-----
+    \\MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAspBrYNk+vSWi8taRt8rW
+    \\FLyg+y5bC4ZA+mIXGd3RLEm0fjXzi90N4iHxM6zwtdEO1dLbuj8KDbpC5rDpEMfx
+    \\MBmvmJVpvbVbZclOUKpNLIKdkPmPFKDCNpNUgGSk+q8IISkaAX6o3bAu9magy6ix
+    \\tNo8UBYa+IkqOJDbehh1C5gf/4REyuuSyYXIqjlWN6AoHBVglDTkxGyIQ2kjFRPh
+    \\1U5Wrlmu2O/vg3GH9zHn++iz5vKnMm9Incr8TqqklCuklNXxb/cICWolWTOILanY
+    \\WlMT3QUOvW7yaJGWe9Ph7z59SqKGTQfnGfMY1F+5LLO0KhjrBDc5DCMy+F4SP2XX
+    \\MwIDAQAB
+    \\-----END PUBLIC KEY-----
 ;

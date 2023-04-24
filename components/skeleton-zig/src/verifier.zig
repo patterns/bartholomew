@@ -174,7 +174,10 @@ const ByRSASignerImpl = struct {
     }
 };
 
-pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader) !std.crypto.Certificate.rsa.PublicKey {
+const cert = std.crypto.Certificate;
+const dere = cert.der.Element;
+
+pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator) !cert.rsa.PublicKey {
     const max = comptime maxPEM();
     var buffer: [max]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -201,18 +204,13 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader) !std.crypto.Cer
     // type-length-value begins 0x30 (sequence tag)
     if (der_bytes[0] != 0x30) return error.Asn1SequenceTag;
 
-    const cert = std.crypto.Certificate;
-    const dere = cert.der.Element;
     const spki_el = try dere.parse(&der_bytes, 0);
     const algo_el = try dere.parse(&der_bytes, spki_el.slice.start);
     const bits_el = try dere.parse(&der_bytes, algo_el.slice.end);
     const cb = cert{ .buffer = &der_bytes, .index = undefined };
     const pub_key = try cert.parseBitString(cb, bits_el);
 
-    //log.warn("parsed bits, ({d}-{d}); {any}", .{
-    //    pub_key.start, pub_key.end,
-    //    std.fmt.fmtSliceHexUpper( der_bytes[pub_key.start..pub_key.end] )});
-
+    // i think we need a tagged union between Ed25519 and RSA pub-key (w algo_el)
     // TODO okay so at this pt, the pub key seems viable
     //      we need to return the offsets of the bit string AND the algo info
     //      i think it's named  `Parsed`  in the std lib
@@ -221,13 +219,14 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader) !std.crypto.Cer
 
     // check rsa (experiment)
     const pk_components = try cert.rsa.PublicKey.parseDer(cb.buffer[pub_key.start..pub_key.end]);
-    //return std.crypto.Certificate.rsa.PublicKey.fromBytes(data, tmp.modulus, ally);
-    log.warn("E {any}, N {any}", .{
+    log.warn("e {d}, n {any}", .{
         std.fmt.fmtSliceHexLower(pk_components.exponent),
         std.fmt.fmtSliceHexLower(pk_components.modulus),
     });
-
-    return error.PublicKeyDer;
+    var rsapk = try cert.rsa.PublicKey.fromBytes(cb.buffer[pub_key.start..pub_key.end], pk_components.modulus, ally);
+    ////const extxt = try rsapk.e.toString(ally, 16, std.fmt.Case.upper);
+    ////log.warn("E {s}, N {any}", .{ extxt, rsapk.n });
+    return rsapk;
 }
 
 // Open PEM envelope and convert DER to SubjectPublicKeyInfo
