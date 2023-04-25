@@ -3,6 +3,7 @@ const std = @import("std");
 const lib = @import("../lib.zig");
 const vfr = @import("../verifier.zig");
 const phi = @import("../phi.zig");
+//const rsapublic = @import("../modules/rsa/public.zig");
 const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
@@ -219,9 +220,32 @@ test "produce verifier adafruit" {
     try expectStr("22541634167300894830429877870905611113467892885325984703149971271335901157143961493096015008757236032148800349683239880541366618454668309123463357922693759993591987075346602073283379840223082159701545870699227513706551658115102046155398425663840779422599828982407108664307549899675381358628510413453975750624683116301398804174698302368992447502014840264611043031502373275172644048673501733726274629021449854038511149615792732543199503156216765007897587697069326937541198241807010358067180969750501119690587482393731216630646107288897166496790769431037525531451238923734209354350547835555926330207550730576901133686579", modtxt);
 }
 
-////    return error.SkipZigTest;
+test "verify signature" {
+    // TODO clean up memory leak
+    //const ally = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
+    // honk headers
+    var raw = honkRawHeaders();
+    // honk public key
+    try vfr.init(ally, raw);
+    vfr.attachFetch(produceFromHonkPEM);
+    var vkey = try vfr.produceVerifier(ally);
+    defer vkey.deinit();
 
-////const test_key_rsa_pss = @embedFile("test-key-rsa-pss.pem");
+    // wrap raw headers
+    var wrap = phi.HeaderList.init(ally, raw);
+    try wrap.catalog();
+    // format sig base input
+    try vfr.init(ally, raw);
+    //const base = try vfr.fmtBase(rcv, wrap);
+    //const sig = wrap.get(.signature);
+
+    return error.SkipZigTest;
+    //public.verifyRsa(base, sig, vkey)
+}
+
 fn produceFromPublicKeyPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypto.Certificate.rsa.PublicKey {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
@@ -238,6 +262,12 @@ fn produceFromAdafruitPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypt
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
     var fbs = std.io.fixedBufferStream(public_adafruit_PEM);
+    return vfr.fromPEM(fbs.reader(), ally);
+}
+fn produceFromHonkPEM(proxy: []const u8, ally: std.mem.Allocator) !std.crypto.Certificate.rsa.PublicKey {
+    // skip network trip that would normally connect to proxy/provider
+    _ = proxy;
+    var fbs = std.io.fixedBufferStream(public_honk_PEM);
     return vfr.fromPEM(fbs.reader(), ally);
 }
 
@@ -273,6 +303,22 @@ fn regRawHeaders() phi.RawHeaders {
     return list;
 }
 
+// accept event header fields
+fn honkRawHeaders() phi.RawHeaders {
+    var list: phi.RawHeaders = undefined;
+    list[0] = phi.RawField{ .fld = "host", .val = "cloud-start-rkqucga6.fermyon.app" };
+    list[1] = phi.RawField{ .fld = "date", .val = "Mon, 13 Mar 2023 05:42:45 GMT" };
+    list[2] = phi.RawField{ .fld = "content-type", .val = "application/ld+json" };
+    list[3] = phi.RawField{ .fld = "digest", .val = "SHA-256=RwHPmgmFFXw+r9NqKuEAeysISvs3eW7BUW/bCvZ41ig=" };
+    list[4] = phi.RawField{ .fld = "content-length", .val = "580" };
+    list[5] = phi.RawField{
+        .fld = "signature",
+        .val = "keyId=\"Test\",algorithm=\"rsa-sha256\",headers=\"(request-target) date host content-type digest\",signature=\"eMs2giWWQyJNyoSK0PaUGzcdV2JqVM0Se1PMbmOaL/kQF1mtPhxhkkonONpZK9EnYw6yglmQZYbSfOVz1r0/ThSuNYDvLv8zoCa2EkscYIRVZ4F4kBdf4DdtkqH+svj3Mn9haIRdmALTAGsJzPn5EUoblofhgdW1CWOySEPuHueDEV9+kTpHC6o6wwnioKwSHG4/U5ZO9xdvFuU0b0nh4NE9n/pSiilktnsQGFh/AVK3MAlR1P4fQtTN6TRu6WjazoGCPSAa3Yu30FwKVICXyL909UkfAeCEZerT9zluSEteXsUgjFZdGkcfizhMsU0rkmasDHXPrNJaznkqB3kXfg==\"",
+    };
+
+    return list;
+}
+
 var public_key_PEM =
     \\-----BEGIN PUBLIC KEY-----
     \\MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCFENGw33yGihy92pDjZQhl0C3
@@ -303,5 +349,17 @@ const public_adafruit_PEM =
     \\1U5Wrlmu2O/vg3GH9zHn++iz5vKnMm9Incr8TqqklCuklNXxb/cICWolWTOILanY
     \\WlMT3QUOvW7yaJGWe9Ph7z59SqKGTQfnGfMY1F+5LLO0KhjrBDc5DCMy+F4SP2XX
     \\MwIDAQAB
+    \\-----END PUBLIC KEY-----
+;
+
+const public_honk_PEM =
+    \\-----BEGIN PUBLIC KEY-----
+    \\MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwLuWyHHpoS/vL/sobSrb
+    \\M5sShW23GnSg1EDIUAq7AyY/quVR6vpv8wuEZ9/WGjvGdc9idEd4q7VJb0kijHdl
+    \\gDVcwE9Sd/qM7FaYKy/qiChyIcuWpyYsoOvmy+FfpbujkuiFgn1IF1MVnw9LK6Cb
+    \\gMSYcu4AE3IXeM9tcyITDN0apo4ak5Z7Fi/tQkWIoAavLoXzwiA1vOM18aytP0im
+    \\ulGkfYQ/aBM4SsLJTT6ZF61y0i3HuX/Z4E+hR4pjKWYnpwv2d1mtASUs1WUZ9WF+
+    \\Z2FryGFgH0yf18gDBmDZtLrZCaD061cIk8EHmysM71EKe2CLcdw7UavocfMIWkg0
+    \\IwIDAQAB
     \\-----END PUBLIC KEY-----
 ;

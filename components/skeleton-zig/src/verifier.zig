@@ -49,10 +49,8 @@ pub fn fmtBase(req: lib.SpinRequest, headers: phi.HeaderList) ![]const u8 {
 }
 
 pub fn verify(ally: Allocator, hashed: [sha256_len]u8) !bool {
-    // _pre-verify_, make the fetch to instantiate a public key
-    const key = try produceVerifier(ally);
-    // impl.Set(public_key);
-    impl.publicKey = key;
+    // _pre-verify_, the fetch to obtain public key
+    impl.publicKey = try produceVerifier(ally);
 
     // TODO this is the rsa verify that we started,
     // but needs to be replaced by the version from std.crypto.Certificate
@@ -108,22 +106,22 @@ const ByRSASignerImpl = struct {
         while (it.next()) |base_el| {
             if (streq("host", base_el)) {
                 const name = headers.get(.host).value;
-                try out.print("\u{000A}host: {s}", .{name});
+                try out.print("{s}host: {s}", .{ lf_codept, name });
             } else if (streq("date", base_el)) {
                 //todo check timestamp
                 const date = headers.get(.date).value;
-                try out.print("\u{000A}date: {s}", .{date});
+                try out.print("{s}date: {s}", .{ lf_codept, date });
             } else if (streq("digest", base_el)) {
                 //todo check digest
                 const digest = headers.get(.digest).value;
-                try out.print("\u{000A}digest: {s}", .{digest});
+                try out.print("{s}digest: {s}", .{ lf_codept, digest });
             } else {
                 // TODO handle USER-DEFINED
                 const kind = phi.Kind.fromDescr(base_el);
                 const val = headers.get(kind).value;
 
                 const lower = base_el;
-                try out.print("\u{000A}{s}: {s}", .{ lower, val });
+                try out.print("{s}{s}: {s}", .{ lf_codept, lower, val });
             }
         }
 
@@ -211,85 +209,32 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
     const cb = cert{ .buffer = &der_bytes, .index = undefined };
     const pub_key = try cert.parseBitString(cb, bits_el);
 
-    // i think we need a tagged union between Ed25519 and RSA pub-key (w algo_el)
+    // very common OID: 2a864886f70d010101
+    // preceded by 0609 which means tag(06) and length(09)
+    // also ending with 0500 which means tag(05) and null(00)
+
+    //const off1 = algo_el.slice.start;
+    const off2 = algo_el.slice.start + 1;
+    const off3 = off2 + 1;
+    //const val1 = @intCast(usize, der_bytes[off1]);
+    const val2 = @intCast(usize, der_bytes[off2]);
+    const off4 = off3 + val2;
+    const algo_cat = cert.AlgorithmCategory.map.get(der_bytes[off3..off4]);
+    if (algo_cat == null) {
+        // handle Ed25519 otherwise panic?
+        log.warn("algo unknown", .{});
+    } else {
+        log.warn("algo : {any}", .{algo_cat.?});
+    }
+
+    // todo need a tagged union between Ed25519 / RSA pub
     const pub_slice = cb.buffer[pub_key.start..pub_key.end];
     const pk_components = try cert.rsa.PublicKey.parseDer(pub_slice);
-
+    return try cert.rsa.PublicKey.fromBytes(pub_slice, pk_components.modulus, ally);
     //log.warn("e {d}, n {any}", .{
     //    std.fmt.fmtSliceHexLower(pk_components.exponent),
     //    std.fmt.fmtSliceHexLower(pk_components.modulus),
     //});
-    return try cert.rsa.PublicKey.fromBytes(pub_slice, pk_components.modulus, ally);
-}
-
-// Open PEM envelope and convert DER to SubjectPublicKeyInfo
-//pub fn fromPEM001(pem: std.io.FixedBufferStream([]const u8).Reader )
-// !std.crypto.Certificate.rsa.PublicKey {
-//    const len_tup = derLength(&der_bytes, 1, der_size);
-// spki starts after length encoding
-//    const spki_at: usize = len_tup.eol;
-//    const spki_total: usize = len_tup.total;
-//    const spki_end = spki_at + spki_total;
-//    const spki = der_bytes[spki_at..spki_end];
-// algorithm-identifier (OID)
-//    const rsa_alg = [_]u8{ 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00 };
-
-// type-length-value begins 0x30 (sequence tag)
-//    if (spki[0] != 0x30) return error.SpkiSequenceTag;
-//    return error.PublicKeyDer;
-//}
-
-// extract total length from DER
-fn derLength(der: []u8, len_start: usize, der_max: usize) struct { eol: usize, total: usize } {
-    var length_marker: usize = len_start + 1;
-    var length_total: usize = @intCast(usize, der[len_start]);
-    if (length_total < 0x80) {
-        // short form of the length (0-127)
-        // fits in (low bits of) single byte (der[len_start])
-        return .{ .eol = length_marker, .total = length_total };
-    }
-
-    // 8th-bit-on means the len slot is counted in bits 7-1
-    const more_bytes_count: usize = length_total - 0x80;
-    std.debug.assert(more_bytes_count != 0);
-
-    switch (more_bytes_count) {
-        1 => {
-            log.warn("additional bytes (1)", .{});
-            // total is the value in the single byte
-            // der[ len_start + 1 ]
-            // which should be in the range 128-255
-            const len_at = len_start + 1;
-            length_marker = len_at + 1;
-            length_total = @intCast(usize, der[len_at]);
-        },
-        2 => {
-            log.warn("additional bytes (2)", .{});
-            // total is the value in the double byte
-            // der[ (len_start + 1) .. (len_start + 2) ]
-            // which should be in the range 256-65535
-            const len_at = len_start + 1;
-            length_marker = len_at + 2;
-
-            const hi_bits: usize = der[len_at];
-            const lo_bits: usize = der[len_at + 1];
-            const shifted = @shlExact(hi_bits, @bitSizeOf(u8));
-            length_total = shifted | lo_bits;
-        },
-        else => unreachable,
-        // if this was reachable, total bytes would be > 65535
-        // which is unexpected because 512 bytes is limit atm
-    }
-
-    // DER forbids the range where long form overlaps with short
-    std.debug.assert(length_total > 127);
-
-    log.warn("eol {d}, total {d} (max {d})", .{ length_marker, length_total, der_max });
-    // verify the extracted total is less (or eq) actual data stream
-    // where der_max is the actual available (from PEM file).
-    std.debug.assert((length_marker + length_total) <= der_max);
-
-    return .{ .eol = length_marker, .total = length_total };
 }
 
 fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
@@ -303,17 +248,16 @@ fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
     return info;
 }
 
-// TODO use std.crypto.Certificate.rsa.PublicKey
-pub const PublicKey = struct {
-    const Self = @This();
-    N: []const u8, // modulus (big.Int)
-    E: []const u8, // exponent (int)
+//pub const PublicKey = struct {
+//    const Self = @This();
+//    N: []const u8, // modulus (big.Int)
+//    E: []const u8, // exponent (int)
 
-    // modulus size in bytes
-    pub fn size(self: Self) usize {
-        return self.N.len;
-    }
-};
+// modulus size in bytes
+//    pub fn size(self: Self) usize {
+//        return self.N.len;
+//    }
+//};
 const HashInfo = struct {
     prefix: []const u8,
     hashLen: usize,
