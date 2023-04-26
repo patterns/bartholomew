@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const snip = @import("modules/rsa/snippet.zig");
+const proof = @import("modules/rsa/proof.zig");
 const lib = @import("lib.zig");
 const phi = @import("phi.zig");
 const mem = std.mem;
@@ -8,23 +8,10 @@ const Allocator = mem.Allocator;
 const log = std.log;
 const b64 = std.base64.standard.Decoder;
 const streq = std.ascii.eqlIgnoreCase;
+const cert = std.crypto.Certificate;
+const dere = cert.der.Element;
 
-// Reminder, _Verifier_ rename here is to emphasize that our concern is
-// only the public key; at the same time, we are not making a general purpose
-// public key, this verifier is limited to ActivityPub and the HTTP signature
-// in Mastodon server crosstalk.
-const Verifier = @This();
-
-const Impl = struct { produce: ProduceVerifierFn };
-var impl = ByRSASignerImpl{ .auth = undefined, .publicKey = undefined };
-var produce: ProduceVerifierFn = undefined;
-
-pub fn init(ally: Allocator, raw: phi.RawHeaders) !void {
-    impl.auth = phi.AuthParams.init(ally, raw);
-    try impl.auth.preverify();
-}
-
-pub const ProduceVerifierFn = *const fn (keyProvider: []const u8, ally: Allocator) anyerror!std.crypto.Certificate.rsa.PublicKey;
+pub const ProduceVerifierFn = *const fn (keyProvider: []const u8) anyerror!ParsedVerifier;
 
 // user defined step to harvest the verifier (pub key)
 pub fn attachFetch(fetch: ProduceVerifierFn) void {
@@ -48,31 +35,41 @@ pub fn fmtBase(req: lib.SpinRequest, headers: phi.HeaderList) ![]const u8 {
     return impl.fmtBase(@intToEnum(Verb, req.method), req.uri, headers);
 }
 
-pub fn verify(ally: Allocator, hashed: [sha256_len]u8) !bool {
-    // _pre-verify_, the fetch to obtain public key
-    impl.publicKey = try produceVerifier(ally);
-
-    // TODO this is the rsa verify that we started,
-    // but needs to be replaced by the version from std.crypto.Certificate
-    //return verifyPKCS1v15(hashed);
-    log.warn("placeholder, {any}", .{hashed});
-    return false;
+// verify signature
+pub fn bySigner(verb: Verb, uri: []const u8, headers: phi.HeaderList) !bool {
+    // _pre-verify_, harvest the public key
+    impl.parsed = try produceVerifier();
+    return impl.bySigner(verb, uri, headers);
 }
 
 // allows test to fire the fetch event
-pub fn produceVerifier(ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
+pub fn produceVerifier() !ParsedVerifier {
     if (produce != undefined) {
         const key_provider = impl.auth.get(.sub_key_id).value;
-        return produce(key_provider, ally);
+        return produce(key_provider);
     }
     return error.FetchNotDefined;
+}
+
+// Reminder, _Verifier_ rename here is to emphasize that our concern is
+// only the public key; at the same time, we are not making a general purpose
+// public key, this verifier is limited to ActivityPub and the HTTP signature
+// in Mastodon server crosstalk.
+const Verifier = @This();
+const Impl = struct { produce: ProduceVerifierFn };
+var impl = ByRSASignerImpl{ .auth = undefined, .parsed = undefined };
+var produce: ProduceVerifierFn = undefined;
+
+pub fn init(ally: Allocator, raw: phi.RawHeaders) !void {
+    impl.auth = phi.AuthParams.init(ally, raw);
+    try impl.auth.preverify();
 }
 
 const ByRSASignerImpl = struct {
     const Self = @This();
 
     auth: phi.AuthParams,
-    publicKey: std.crypto.Certificate.rsa.PublicKey,
+    parsed: ParsedVerifier,
 
     // reconstruct input-string
     pub fn fmtBase(
@@ -128,55 +125,43 @@ const ByRSASignerImpl = struct {
         return chan.buffer.getWritten();
     }
 
-    // hashed: the SHA-256 hash of the input-string (signature base)
-    // signature: the plain text decoded from header base64 field
-    // see https://go.dev/src/crypto/rsa/pkcs1v15.go
-    pub fn verifyPKCS1v15(hashed: [sha256_len]u8) !bool {
-        //const info = try pkcs1v15HashInfo(hashed.len);
-        //const tLen = info.prefix.len + info.hashLen;
+    // verify signature
+    pub fn bySigner(
+        self: Self,
+        verb: Verb,
+        uri: []const u8,
+        headers: phi.HeaderList,
+    ) !bool {
+        // invoke the "verifyRsa" from std
+        try proof.signatureProof(cert.Algorithm.sha256WithRSAEncryption.Hash(), try self.fmtBase(verb, uri, headers), try self.signature(), self.parsed.algo, self.parsed.slice);
 
-        //const plain = try self.decodeB64();
-        //const k = self.publicKey.size();
-
-        //if (k < tLen + 11) return error.ErrVerification;
-
-        // TODO double-confirm logic
-        ////if (k != plain.len) return error.ErrVerification;
-
-        // DEBUG DEBUG
-        //try exp.snippet.verifyRsa(std.crypto.hash.sha2.Sha256,
-        //    hashed[0..sha256_len].*, plain,
-        //    self.publicKey.n, self.publicKey.e);
-
-        log.debug("did it REALLY work, {any}", .{hashed});
-
-        return false;
+        //log.warn("verif {any} ", .{self.vkey });
+        return true;
     }
 
-    // The signature becomes the length of the SHA256 hash after base64 decoding.
-    // We're basically unwrapping or reversing the steps from the signing.
-    fn decodeB64(self: Self) ![]u8 {
+    fn signature(self: Self) ![]u8 {
+        // signature bitstring comes from the auth params list
+        // which is base64 (format for header fields)
+        var buffer: [512]u8 = undefined;
         const sig = self.auth.get(.sub_signature).value;
-        const sz = try b64.calcSizeForSlice(sig);
-        // TODO double-confirm this logic because I must have read the Golang wrong
-        //if (sha256_len < sz) {
-        //    log.err("Perhaps SHA256 wasn't the hash used by signer, sz: {d}", .{sz});
-        //    return error.SignatureDecode;
-        //}
-        //var buffer: [sha256_len]u8 = mem.zeroes([sha256_len]u8);
-        var buffer: [128]u8 = mem.zeroes([128]u8);
-        var decoded = buffer[0..sz];
-        try b64.decode(decoded, sig);
+        const max = try b64.calcSizeForSlice(sig);
 
+        var decoded = buffer[0..max];
+        try b64.decode(decoded, sig);
         return decoded;
     }
 };
 
-// namespace short aliases
-const cert = std.crypto.Certificate;
-const dere = cert.der.Element;
+pub const ParsedVerifier = struct {
+    ////key: cert.rsa.PublicKey,
+    algo: cert.Parsed.PubKeyAlgo,
+    slice: []const u8,
+};
 
-pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator) !cert.rsa.PublicKey {
+pub fn fromPEM(
+    pem: std.io.FixedBufferStream([]const u8).Reader,
+    ////ally: Allocator,
+) !ParsedVerifier {
     const max = comptime maxPEM();
     var buffer: [max]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -213,61 +198,35 @@ pub fn fromPEM(pem: std.io.FixedBufferStream([]const u8).Reader, ally: Allocator
     // preceded by 0609 which means tag(06) and length(09)
     // also ending with 0500 which means tag(05) and null(00)
 
-    //const off1 = algo_el.slice.start;
     const off2 = algo_el.slice.start + 1;
     const off3 = off2 + 1;
-    //const val1 = @intCast(usize, der_bytes[off1]);
+
     const val2 = @intCast(usize, der_bytes[off2]);
     const off4 = off3 + val2;
     const algo_cat = cert.AlgorithmCategory.map.get(der_bytes[off3..off4]);
     if (algo_cat == null) {
-        // handle Ed25519 otherwise panic?
-        log.warn("algo unknown", .{});
-    } else {
-        log.warn("algo : {any}", .{algo_cat.?});
+        log.warn("DER parse, pubkey algorithm unknown  ", .{});
+        return error.UnknownAlgorithm;
+    }
+    var algo: cert.Parsed.PubKeyAlgo = undefined;
+    switch (algo_cat.?) {
+        .rsaEncryption => algo = .{ .rsaEncryption = {} },
+        else => {
+            // handle Ed25519 otherwise panic?
+            log.warn("algo unknown", .{});
+        },
     }
 
     // todo need a tagged union between Ed25519 / RSA pub
     const pub_slice = cb.buffer[pub_key.start..pub_key.end];
-    const pk_components = try cert.rsa.PublicKey.parseDer(pub_slice);
-    return try cert.rsa.PublicKey.fromBytes(pub_slice, pk_components.modulus, ally);
+    ////const pk_components = try cert.rsa.PublicKey.parseDer(pub_slice);
+    ////return try cert.rsa.PublicKey.fromBytes(pub_slice, pk_components.modulus, ally);
     //log.warn("e {d}, n {any}", .{
     //    std.fmt.fmtSliceHexLower(pk_components.exponent),
     //    std.fmt.fmtSliceHexLower(pk_components.modulus),
     //});
-}
 
-fn pkcs1v15HashInfo(inLen: usize) !HashInfo {
-    if (sha256_len != inLen) return error.NotHashedBySHA256;
-
-    var info = HashInfo{
-        .prefix = hashPrefixes(),
-        .hashLen = sha256_len,
-    };
-
-    return info;
-}
-
-//pub const PublicKey = struct {
-//    const Self = @This();
-//    N: []const u8, // modulus (big.Int)
-//    E: []const u8, // exponent (int)
-
-// modulus size in bytes
-//    pub fn size(self: Self) usize {
-//        return self.N.len;
-//    }
-//};
-const HashInfo = struct {
-    prefix: []const u8,
-    hashLen: usize,
-};
-
-fn hashPrefixes() []const u8 {
-    // crypto.SHA256
-    return &[_]u8{
-        0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
-    };
+    return ParsedVerifier{ .slice = pub_slice, .algo = algo };
 }
 
 // SHA256 creates digests of 32 bytes.

@@ -55,22 +55,19 @@ fn unknownSignature(ally: Allocator, req: lib.SpinRequest) !bool {
     var wrap = phi.HeaderList.init(ally, placeholder);
 
     try vfr.init(ally, placeholder);
-
-    var hashed = try vfr.sha256Base(req, wrap);
     vfr.attachFetch(customVerifier);
 
-    _ = try vfr.verify(ally, hashed);
+    _ = try vfr.bySigner(@intToEnum(vfr.Verb, req.method), req.uri, wrap);
 
     // checks passed
     return !bad;
 }
 
 // need test cases for the httpsig input sequence
-fn customVerifier(proxy: []const u8, ally: Allocator) !std.crypto.Certificate.rsa.PublicKey {
-    _ = ally;
+fn customVerifier(proxy: []const u8) !vfr.ParsedVerifier {
     if (proxy.len == 0) {
         return error.KeyProvider;
     }
 
-    return std.crypto.Certificate.rsa.PublicKey{ .e = undefined, .n = undefined };
+    return vfr.ParsedVerifier{ .algo = undefined, .slice = undefined };
 }
