@@ -133,7 +133,7 @@ const ByRSASignerImpl = struct {
         headers: phi.HeaderList,
     ) !bool {
         // invoke the "verifyRsa" from std
-        try proof.signatureProof(cert.Algorithm.sha256WithRSAEncryption.Hash(), try self.fmtBase(verb, uri, headers), try self.signature(), self.parsed.algo, self.parsed.slice);
+        try proof.signatureProof(cert.Algorithm.sha256WithRSAEncryption.Hash(), try self.fmtBase(verb, uri, headers), try self.signature(), self.parsed.algo, self.parsed.bits());
 
         //log.warn("verif {any} ", .{self.vkey });
         return true;
@@ -152,16 +152,25 @@ const ByRSASignerImpl = struct {
     }
 };
 
+// mashup of Parsed from std
 pub const ParsedVerifier = struct {
-    ////key: cert.rsa.PublicKey,
+    const Self = @This();
+    buffer: [512]u8,
     algo: cert.Parsed.PubKeyAlgo,
-    slice: []const u8,
+    len: usize,
+
+    pub fn bits(self: Self) []const u8 {
+        return self.buffer[0..self.len];
+    }
 };
 
+// pem: file stream of verifier
+// out: buffer for storing parsed verifier
+// returns slice which points to the buffer argument
 pub fn fromPEM(
     pem: std.io.FixedBufferStream([]const u8).Reader,
-    ////ally: Allocator,
-) !ParsedVerifier {
+    out: []u8,
+) !struct { slice: []u8, algo: cert.Parsed.PubKeyAlgo } {
     const max = comptime maxPEM();
     var buffer: [max]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -226,7 +235,12 @@ pub fn fromPEM(
     //    std.fmt.fmtSliceHexLower(pk_components.modulus),
     //});
 
-    return ParsedVerifier{ .slice = pub_slice, .algo = algo };
+    std.mem.copy(u8, out, pub_slice);
+    const pv_len = pub_key.end - pub_key.start;
+    return .{
+        .slice = out[0..pv_len],
+        .algo = algo,
+    };
 }
 
 // SHA256 creates digests of 32 bytes.

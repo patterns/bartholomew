@@ -69,5 +69,5 @@ fn customVerifier(proxy: []const u8) !vfr.ParsedVerifier {
         return error.KeyProvider;
     }
 
-    return vfr.ParsedVerifier{ .algo = undefined, .slice = undefined };
+    return vfr.ParsedVerifier{ .algo = undefined, .len = 0, .buffer = undefined };
 }
