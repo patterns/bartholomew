@@ -11,7 +11,7 @@ const streq = std.ascii.eqlIgnoreCase;
 const cert = std.crypto.Certificate;
 const dere = cert.der.Element;
 
-pub const ProduceVerifierFn = *const fn (keyProvider: []const u8) anyerror!ParsedVerifier;
+pub const ProduceVerifierFn = *const fn (ally: Allocator, keyProvider: []const u8) anyerror!ParsedVerifier;
 
 // user defined step to harvest the verifier (pub key)
 pub fn attachFetch(fetch: ProduceVerifierFn) void {
@@ -36,17 +36,17 @@ pub fn fmtBase(req: lib.SpinRequest, headers: phi.HeaderList) ![]const u8 {
 }
 
 // verify signature
-pub fn bySigner(verb: Verb, uri: []const u8, headers: phi.HeaderList) !bool {
+pub fn bySigner(ally: Allocator, verb: Verb, uri: []const u8, headers: phi.HeaderList) !bool {
     // _pre-verify_, harvest the public key
-    impl.parsed = try produceVerifier();
+    impl.parsed = try produceVerifier(ally);
     return impl.bySigner(verb, uri, headers);
 }
 
 // allows test to fire the fetch event
-pub fn produceVerifier() !ParsedVerifier {
+pub fn produceVerifier(ally: Allocator) !ParsedVerifier {
     if (produce != undefined) {
         const key_provider = impl.auth.get(.sub_key_id).value;
-        return produce(key_provider);
+        return produce(ally, key_provider);
     }
     return error.FetchNotDefined;
 }
@@ -155,12 +155,17 @@ const ByRSASignerImpl = struct {
 // mashup of Parsed from std
 pub const ParsedVerifier = struct {
     const Self = @This();
-    buffer: [512]u8,
+    octet_string: []u8,
     algo: cert.Parsed.PubKeyAlgo,
     len: usize,
 
+    // expose a convenience to the *bitstring* of pub key
     pub fn bits(self: Self) []const u8 {
-        return self.buffer[0..self.len];
+        return self.octet_string[0..self.len];
+    }
+    //TODO pair to 'init'
+    pub fn deinit(self: *Self, ally: Allocator) void {
+        ally.free(self.octet_string);
     }
 };
 
@@ -168,9 +173,10 @@ pub const ParsedVerifier = struct {
 // out: buffer for storing parsed verifier
 // returns slice which points to the buffer argument
 pub fn fromPEM(
+    ally: Allocator,
     pem: std.io.FixedBufferStream([]const u8).Reader,
-    out: []u8,
-) !struct { slice: []u8, algo: cert.Parsed.PubKeyAlgo } {
+    //out: []u8,
+) !ParsedVerifier {
     const max = comptime maxPEM();
     var buffer: [max]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -235,11 +241,11 @@ pub fn fromPEM(
     //    std.fmt.fmtSliceHexLower(pk_components.modulus),
     //});
 
-    std.mem.copy(u8, out, pub_slice);
     const pv_len = pub_key.end - pub_key.start;
-    return .{
-        .slice = out[0..pv_len],
+    return ParsedVerifier{
+        .octet_string = try ally.dupe(u8, pub_slice),
         .algo = algo,
+        .len = pv_len,
     };
 }
 

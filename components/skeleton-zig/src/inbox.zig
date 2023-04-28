@@ -57,17 +57,18 @@ fn unknownSignature(ally: Allocator, req: lib.SpinRequest) !bool {
     try vfr.init(ally, placeholder);
     vfr.attachFetch(customVerifier);
 
-    _ = try vfr.bySigner(@intToEnum(vfr.Verb, req.method), req.uri, wrap);
+    _ = try vfr.bySigner(ally, @intToEnum(vfr.Verb, req.method), req.uri, wrap);
 
     // checks passed
     return !bad;
 }
 
 // need test cases for the httpsig input sequence
-fn customVerifier(proxy: []const u8) !vfr.ParsedVerifier {
+fn customVerifier(ally: Allocator, proxy: []const u8) !vfr.ParsedVerifier {
+    _ = ally;
     if (proxy.len == 0) {
         return error.KeyProvider;
     }
 
-    return vfr.ParsedVerifier{ .algo = undefined, .len = 0, .buffer = undefined };
+    return vfr.ParsedVerifier{ .algo = undefined, .len = 0, .octet_string = undefined };
 }

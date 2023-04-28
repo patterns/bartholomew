@@ -168,23 +168,22 @@ test "produce verifier rsa" {
 
     // minimal headers
     var raw = minRawHeaders();
-
     // fake public key via our custom harvester
     try vfr.init(ally, raw);
     vfr.attachFetch(produceFromPublicKeyPEM);
-    var pv = try vfr.produceVerifier();
-    // read key bitstring
+    var pv = try vfr.produceVerifier(ally);
+    defer pv.deinit(ally);
+    var scratch_buf: [512]u8 = undefined;
+    // read key bitstring (answers whether our PEM harvester did ok)
     const pk_components = try cert.rsa.PublicKey.parseDer(pv.bits());
+
     // base-16: 65536 4096 256 16 1
     // which makes 65537 into 0x010001
-    var scratch_buf: [8]u8 = undefined;
-    var hex_txt: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
-    try expectStr("010001", hex_txt);
+    var txt_exponent: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
+    try expectStr("010001", txt_exponent);
 
-    ////const modtxt = try vkey.n.toString(ally, 10, fmt.Case.upper);
-    //try expectStr(
-    //    "136287014989608765893123126038106572662775969591951227130418898610855192325348933630885960405684877794822018571580683189422700394681986953780776002189134127788826182440724839043317920353954669979929011493094302864518238564874305630519223810399534512757200334611583365920204719997149421452315257365248562982089",
-    //    modtxt);
+    var txt_modulus: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexUpper(pk_components.modulus)});
+    try expectStr("C2144346C37DF21A2872F76A438D94219740B7EAB3C98FE0AF7D20BCFAADBC871035EB5405354775DF0B824D472AD10776AAC05EFF6845C9CD83089260D21D4BEFCFBA67850C47B10E7297DD504F477F79BF86CF85511E39B8125E0CAD474851C3F1B1CA0FA92FF053C67C94E8B5CFB6C63270A188BED61AA9D5F21E91AC6CC9", txt_modulus);
 }
 test "produce verifier eff" {
     // TODO clean up memory leak
@@ -199,18 +198,16 @@ test "produce verifier eff" {
     // fake public key via our custom harvester
     try vfr.init(ally, raw);
     vfr.attachFetch(produceFromEFFPEM);
-    var pv = try vfr.produceVerifier();
+    var pv = try vfr.produceVerifier(ally);
+    defer pv.deinit(ally);
+    var scratch_buf: [512]u8 = undefined;
     // read key bitstring
     const pk_components = try cert.rsa.PublicKey.parseDer(pv.bits());
-    var scratch_buf: [8]u8 = undefined;
-    var hex_txt: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
-    ////try expectStr("010001", hex_txt);
-    log.debug("test {any}", .{hex_txt});
-    return error.SkipZigTest;
-    //const modtxt = try vkey.n.toString(ally, 10, fmt.Case.upper);
-    //try expectStr(
-    //    "19959745154717260766510463162970710631663779706865741160613921920435198377669499241147026536329436882612052228253583784306606573942618214251040679639065815859836226591094607170357852600947616568746275862413065385149717970244738004652546695884680785830372485548560800434022650933424341378162731829435201718727230410102380634535995195109526898585440535352317797613836457677131435531780171344963088904510086645739642769505138649692114641475287574785612115032442996390738542433212013867772270704780375477017383131473008970986931683136509333049977699126195960445604467573205716311271669820991682802880620492258712505143149",
-    //    modtxt);
+    var txt_exponent: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
+    try expectStr("010001", txt_exponent);
+
+    var txt_modulus: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexUpper(pk_components.modulus)});
+    try expectStr("9E1C944BF0F66D0F6D3188C413A51B8F4D1BEF39FC2C887F65AFD661FC8D01410DB7A4B130E0C0E043DA6CE0648F4761F994C19ED47281AABC0451C4E86B8C6376BF566C6D75629070C106F26A42D3B94C947B3DC6978709E669CEC04DDD230E5A9EA3EFF9440FFAF36D5D510714809B79824787A513456CA4F6994DB361FFAC12C81D0E84B6154D4CBB18611E757848D160C392446AF950767ECCCD141E50A7764842ABB8D7DEE483C5B3031A129A9FEB624ADE35409799C5E9AE14D9AEB80EADD57359174FE825E390EFCAFF315E652EABCED0239CCCAE32FF014421E47E7B61C73E2F6B5907A3A91546BD75EED39A04305AC459A6982ECF2AA4D1BEA5CF6D", txt_modulus);
 }
 test "produce verifier adafruit" {
     // TODO clean up memory leak
@@ -225,14 +222,16 @@ test "produce verifier adafruit" {
     // fake public key via our custom harvester
     try vfr.init(ally, raw);
     vfr.attachFetch(produceFromAdafruitPEM);
-    var pv = try vfr.produceVerifier();
-    log.debug("test {any}", .{pv.algo});
-    return error.SkipZigTest;
+    var pv = try vfr.produceVerifier(ally);
+    defer pv.deinit(ally);
+    var scratch_buf: [512]u8 = undefined;
+    // read key bitstring
+    const pk_components = try cert.rsa.PublicKey.parseDer(pv.bits());
+    var txt_exponent: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
+    try expectStr("010001", txt_exponent);
 
-    //const modtxt = try vkey.n.toString(ally, 10, fmt.Case.upper);
-    //try expectStr(
-    //    "22541634167300894830429877870905611113467892885325984703149971271335901157143961493096015008757236032148800349683239880541366618454668309123463357922693759993591987075346602073283379840223082159701545870699227513706551658115102046155398425663840779422599828982407108664307549899675381358628510413453975750624683116301398804174698302368992447502014840264611043031502373275172644048673501733726274629021449854038511149615792732543199503156216765007897587697069326937541198241807010358067180969750501119690587482393731216630646107288897166496790769431037525531451238923734209354350547835555926330207550730576901133686579",
-    //    modtxt);
+    var txt_modulus: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexUpper(pk_components.modulus)});
+    try expectStr("B2906B60D93EBD25A2F2D691B7CAD614BCA0FB2E5B0B8640FA621719DDD12C49B47E35F38BDD0DE221F133ACF0B5D10ED5D2DBBA3F0A0DBA42E6B0E910C7F13019AF989569BDB55B65C94E50AA4D2C829D90F98F14A0C23693548064A4FAAF0821291A017EA8DDB02EF666A0CBA8B1B4DA3C50161AF8892A3890DB7A18750B981FFF8444CAEB92C985C8AA395637A0281C15609434E4C46C884369231513E1D54E56AE59AED8EFEF837187F731E7FBE8B3E6F2A7326F489DCAFC4EAAA4942BA494D5F16FF708096A255933882DA9D85A5313DD050EBD6EF26891967BD3E1EF3E7D4AA2864D07E719F318D45FB92CB3B42A18EB0437390C2332F85E123F65D733", txt_modulus);
 }
 
 test "verifyRsa as public module" {
@@ -247,8 +246,8 @@ test "verifyRsa as public module" {
     // honk public key
     try vfr.init(ally, raw);
     vfr.attachFetch(produceFromHonkPEM);
-    var pv = try vfr.produceVerifier();
-
+    var pv = try vfr.produceVerifier(ally);
+    defer pv.deinit(ally);
     // wrap raw headers
     var wrap = phi.HeaderList.init(ally, raw);
     try wrap.catalog();
@@ -270,53 +269,34 @@ test "verifyRsa as public module" {
     const base = try vfr.fmtBase(rcv, wrap);
     //const sig = wrap.get(.signature);
     //proof.signatureProof(base, sig, vkey);
-    log.debug("test {any} {any}", .{ base, pv.algo });
+    log.debug("test {any} ", .{base});
     return error.SkipZigTest;
 }
 ////return error.SkipZigTest;
 
-fn produceFromPublicKeyPEM(proxy: []const u8) !vfr.ParsedVerifier {
+fn produceFromPublicKeyPEM(ally: std.mem.Allocator, proxy: []const u8) !vfr.ParsedVerifier {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
     var fbs = std.io.fixedBufferStream(public_key_PEM);
-    var pv = vfr.ParsedVerifier{ .buffer = undefined, .algo = undefined, .len = 0 };
-    var tup = try vfr.fromPEM(fbs.reader(), &pv.buffer);
-    pv.algo = tup.algo;
-    pv.len = tup.slice.len;
-    return pv;
+    return vfr.fromPEM(ally, fbs.reader());
 }
-fn produceFromEFFPEM(proxy: []const u8) !vfr.ParsedVerifier {
+fn produceFromEFFPEM(ally: std.mem.Allocator, proxy: []const u8) !vfr.ParsedVerifier {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
     var fbs = std.io.fixedBufferStream(public_eff_PEM);
-
-    var pv = vfr.ParsedVerifier{ .buffer = undefined, .algo = undefined, .len = 0 };
-    var tup = try vfr.fromPEM(fbs.reader(), &pv.buffer);
-    pv.algo = tup.algo;
-    pv.len = tup.slice.len;
-    return pv;
+    return vfr.fromPEM(ally, fbs.reader());
 }
-fn produceFromAdafruitPEM(proxy: []const u8) !vfr.ParsedVerifier {
+fn produceFromAdafruitPEM(ally: std.mem.Allocator, proxy: []const u8) !vfr.ParsedVerifier {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
     var fbs = std.io.fixedBufferStream(public_adafruit_PEM);
-
-    var pv = vfr.ParsedVerifier{ .buffer = undefined, .algo = undefined, .len = 0 };
-    var tup = try vfr.fromPEM(fbs.reader(), &pv.buffer);
-    pv.algo = tup.algo;
-    pv.len = tup.slice.len;
-    return pv;
+    return vfr.fromPEM(ally, fbs.reader());
 }
-fn produceFromHonkPEM(proxy: []const u8) !vfr.ParsedVerifier {
+fn produceFromHonkPEM(ally: std.mem.Allocator, proxy: []const u8) !vfr.ParsedVerifier {
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
     var fbs = std.io.fixedBufferStream(public_honk_PEM);
-
-    var pv = vfr.ParsedVerifier{ .buffer = undefined, .algo = undefined, .len = 0 };
-    var tup = try vfr.fromPEM(fbs.reader(), &pv.buffer);
-    pv.algo = tup.algo;
-    pv.len = tup.slice.len;
-    return pv;
+    return vfr.fromPEM(ally, fbs.reader());
 }
 
 // simulate raw header fields
