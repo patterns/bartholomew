@@ -36,10 +36,12 @@ pub fn fmtBase(req: lib.SpinRequest, headers: phi.HeaderList) ![]const u8 {
 }
 
 // verify signature
-pub fn bySigner(ally: Allocator, verb: Verb, uri: []const u8, headers: phi.HeaderList) !bool {
+pub fn bySigner(ally: Allocator, base: []const u8) !bool {
+
     // _pre-verify_, harvest the public key
     impl.parsed = try produceVerifier(ally);
-    return impl.bySigner(verb, uri, headers);
+
+    return impl.bySigner(base);
 }
 
 // allows test to fire the fetch event
@@ -126,28 +128,25 @@ const ByRSASignerImpl = struct {
     }
 
     // verify signature
-    pub fn bySigner(
-        self: Self,
-        verb: Verb,
-        uri: []const u8,
-        headers: phi.HeaderList,
-    ) !bool {
-        // invoke the "verifyRsa" from std
-        try proof.signatureProof(cert.Algorithm.sha256WithRSAEncryption.Hash(), try self.fmtBase(verb, uri, headers), try self.signature(), self.parsed.algo, self.parsed.bits());
+    pub fn bySigner(self: Self, base: []const u8) !bool {
+        var buffer: [256]u8 = undefined;
 
-        //log.warn("verif {any} ", .{self.vkey });
+        // invoke the "verifyRsa" from std
+        try proof.signatureProof(cert.Algorithm.sha256WithRSAEncryption.Hash(), base, try self.signature(&buffer), self.parsed.algo, self.parsed.bits());
+
         return true;
     }
 
-    fn signature(self: Self) ![]u8 {
-        // signature bitstring comes from the auth params list
+    fn signature(self: Self, buffer: []u8) ![]u8 {
+        // signature comes from the auth params list
         // which is base64 (format for header fields)
-        var buffer: [512]u8 = undefined;
+
         const sig = self.auth.get(.sub_signature).value;
-        const max = try b64.calcSizeForSlice(sig);
+        const clean = mem.trim(u8, sig, "\"");
+        const max = try b64.calcSizeForSlice(clean);
 
         var decoded = buffer[0..max];
-        try b64.decode(decoded, sig);
+        try b64.decode(decoded, clean);
         return decoded;
     }
 };
@@ -235,7 +234,7 @@ pub fn fromPEM(
     // todo need a tagged union between Ed25519 / RSA pub
     const pub_slice = cb.buffer[pub_key.start..pub_key.end];
     ////const pk_components = try cert.rsa.PublicKey.parseDer(pub_slice);
-    ////return try cert.rsa.PublicKey.fromBytes(pub_slice, pk_components.modulus, ally);
+    ////return try cert.rsa.PublicKey.fromBytes(pk_components.exponent, pk_components.modulus, ally);
     //log.warn("e {d}, n {any}", .{
     //    std.fmt.fmtSliceHexLower(pk_components.exponent),
     //    std.fmt.fmtSliceHexLower(pk_components.modulus),

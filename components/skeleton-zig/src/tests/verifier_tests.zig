@@ -174,7 +174,8 @@ test "produce verifier rsa" {
     var pv = try vfr.produceVerifier(ally);
     defer pv.deinit(ally);
     var scratch_buf: [512]u8 = undefined;
-    // read key bitstring (answers whether our PEM harvester did ok)
+
+    // read key's octet string (answers whether our PEM harvester did ok)
     const pk_components = try cert.rsa.PublicKey.parseDer(pv.bits());
 
     // base-16: 65536 4096 256 16 1
@@ -185,6 +186,7 @@ test "produce verifier rsa" {
     var txt_modulus: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexUpper(pk_components.modulus)});
     try expectStr("C2144346C37DF21A2872F76A438D94219740B7EAB3C98FE0AF7D20BCFAADBC871035EB5405354775DF0B824D472AD10776AAC05EFF6845C9CD83089260D21D4BEFCFBA67850C47B10E7297DD504F477F79BF86CF85511E39B8125E0CAD474851C3F1B1CA0FA92FF053C67C94E8B5CFB6C63270A188BED61AA9D5F21E91AC6CC9", txt_modulus);
 }
+
 test "produce verifier eff" {
     // TODO clean up memory leak
     //const ally = std.testing.allocator;
@@ -194,7 +196,6 @@ test "produce verifier eff" {
 
     // minimal headers
     var raw = minRawHeaders();
-
     // fake public key via our custom harvester
     try vfr.init(ally, raw);
     vfr.attachFetch(produceFromEFFPEM);
@@ -203,6 +204,7 @@ test "produce verifier eff" {
     var scratch_buf: [512]u8 = undefined;
     // read key bitstring
     const pk_components = try cert.rsa.PublicKey.parseDer(pv.bits());
+
     var txt_exponent: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
     try expectStr("010001", txt_exponent);
 
@@ -218,7 +220,6 @@ test "produce verifier adafruit" {
 
     // minimal headers
     var raw = minRawHeaders();
-
     // fake public key via our custom harvester
     try vfr.init(ally, raw);
     vfr.attachFetch(produceFromAdafruitPEM);
@@ -227,6 +228,7 @@ test "produce verifier adafruit" {
     var scratch_buf: [512]u8 = undefined;
     // read key bitstring
     const pk_components = try cert.rsa.PublicKey.parseDer(pv.bits());
+
     var txt_exponent: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
     try expectStr("010001", txt_exponent);
 
@@ -240,17 +242,6 @@ test "verifyRsa as public module" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const ally = arena.allocator();
-    // honk headers
-    var raw = honkRawHeaders();
-
-    // honk public key
-    try vfr.init(ally, raw);
-    vfr.attachFetch(produceFromHonkPEM);
-    var pv = try vfr.produceVerifier(ally);
-    defer pv.deinit(ally);
-    // wrap raw headers
-    var wrap = phi.HeaderList.init(ally, raw);
-    try wrap.catalog();
 
     // sim rcv request
     var rcv = lib.SpinRequest{
@@ -258,19 +249,19 @@ test "verifyRsa as public module" {
         .method = @enumToInt(vfr.Verb.post),
         .uri = "/inbox",
         .params = undefined,
-        .headers = raw,
+        .headers = honkRawHeaders(),
         .body = undefined,
     };
-    //var arr = "{\"hello\": \"world\"}".*;
-    //var buf: []u8 = &arr;
-    //var fbs = std.io.fixedBufferStream(buf);
-    //rcv.body = &fbs;
-
+    // wrap raw headers
+    var wrap = phi.HeaderList.init(ally, rcv.headers);
+    try wrap.catalog();
+    // honk public key
+    try vfr.init(ally, rcv.headers);
+    vfr.attachFetch(produceFromHonkPEM);
     const base = try vfr.fmtBase(rcv, wrap);
-    //const sig = wrap.get(.signature);
-    //proof.signatureProof(base, sig, vkey);
-    log.debug("test {any} ", .{base});
-    return error.SkipZigTest;
+
+    const result = try vfr.bySigner(ally, base);
+    try expect(result == true);
 }
 ////return error.SkipZigTest;
 

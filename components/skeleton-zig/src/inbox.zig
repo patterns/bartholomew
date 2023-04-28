@@ -56,8 +56,8 @@ fn unknownSignature(ally: Allocator, req: lib.SpinRequest) !bool {
 
     try vfr.init(ally, placeholder);
     vfr.attachFetch(customVerifier);
-
-    _ = try vfr.bySigner(ally, @intToEnum(vfr.Verb, req.method), req.uri, wrap);
+    const base = try vfr.fmtBase(req, wrap);
+    _ = try vfr.bySigner(ally, base);
 
     // checks passed
     return !bad;
