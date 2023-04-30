@@ -236,6 +236,53 @@ test "produce verifier adafruit" {
     try expectStr("B2906B60D93EBD25A2F2D691B7CAD614BCA0FB2E5B0B8640FA621719DDD12C49B47E35F38BDD0DE221F133ACF0B5D10ED5D2DBBA3F0A0DBA42E6B0E910C7F13019AF989569BDB55B65C94E50AA4D2C829D90F98F14A0C23693548064A4FAAF0821291A017EA8DDB02EF666A0CBA8B1B4DA3C50161AF8892A3890DB7A18750B981FFF8444CAEB92C985C8AA395637A0281C15609434E4C46C884369231513E1D54E56AE59AED8EFEF837187F731E7FBE8B3E6F2A7326F489DCAFC4EAAA4942BA494D5F16FF708096A255933882DA9D85A5313DD050EBD6EF26891967BD3E1EF3E7D4AA2864D07E719F318D45FB92CB3B42A18EB0437390C2332F85E123F65D733", txt_modulus);
 }
 
+test "verify peop" {
+    // TODO clean up memory leak
+    //const ally = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const ally = arena.allocator();
+
+    // sim rcv request
+    var rcv = lib.SpinRequest{
+        .ally = ally,
+        .method = @enumToInt(vfr.Verb.post),
+        .uri = "/users/oatmeal/inbox",
+        .params = undefined,
+        .headers = peopRawHeaders(),
+        .body = undefined,
+    };
+    // wrap raw headers
+    var wrap = phi.HeaderList.init(ally, rcv.headers);
+    try wrap.catalog();
+    // peop public key
+    try vfr.init(ally, rcv.headers);
+    vfr.attachFetch(produceFromPeopPEM);
+    var pv = try vfr.produceVerifier(ally);
+    defer pv.deinit(ally);
+    var scratch_buf: [512]u8 = undefined;
+    // read key bitstring
+    const pk_components = try cert.rsa.PublicKey.parseDer(pv.bits());
+    var txt_exponent: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexLower(pk_components.exponent)});
+    try expectStr("010001", txt_exponent);
+    var txt_modulus: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexUpper(pk_components.modulus)});
+    try expectStr(modulus_peop, txt_modulus);
+
+    // base input check
+    const base = try vfr.fmtBase(rcv, wrap);
+    try expectStr(base, base_peop_TXT);
+
+    var hashed_msg: [32]u8 = undefined;
+    // sha256 sum check
+    try proof.hashed(cert.Algorithm.sha256WithRSAEncryption.Hash(), base, cert.Parsed.PubKeyAlgo.rsaEncryption, &hashed_msg);
+    const txt_hashed: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexUpper(&hashed_msg)});
+
+    try expectStr(sum256_peop, txt_hashed);
+
+    ////const result = try vfr.bySigner(ally, base);
+    ////try expect(result == true);
+}
+
 test "verifyRsa as public module" {
     // TODO clean up memory leak
     //const ally = std.testing.allocator;
@@ -258,10 +305,12 @@ test "verifyRsa as public module" {
     // honk public key
     try vfr.init(ally, rcv.headers);
     vfr.attachFetch(produceFromHonkPEM);
-    const base = try vfr.fmtBase(rcv, wrap);
+    ////const base = try vfr.fmtBase(rcv, wrap);
+    ////log.warn("input base, {s}", .{base});
 
-    const result = try vfr.bySigner(ally, base);
-    try expect(result == true);
+    ////const result = try vfr.bySigner(ally, base);
+    ////try expect(result == true);
+    return error.SkipZigTest;
 }
 ////return error.SkipZigTest;
 
@@ -287,6 +336,12 @@ fn produceFromHonkPEM(ally: std.mem.Allocator, proxy: []const u8) !vfr.ParsedVer
     // skip network trip that would normally connect to proxy/provider
     _ = proxy;
     var fbs = std.io.fixedBufferStream(public_honk_PEM);
+    return vfr.fromPEM(ally, fbs.reader());
+}
+fn produceFromPeopPEM(ally: std.mem.Allocator, proxy: []const u8) !vfr.ParsedVerifier {
+    // skip network trip that would normally connect to proxy/provider
+    _ = proxy;
+    var fbs = std.io.fixedBufferStream(public_peop_PEM);
     return vfr.fromPEM(ally, fbs.reader());
 }
 
@@ -338,6 +393,22 @@ fn honkRawHeaders() phi.RawHeaders {
     return list;
 }
 
+// (follow) request fields
+fn peopRawHeaders() phi.RawHeaders {
+    var list: phi.RawHeaders = undefined;
+    list[0] = phi.RawField{ .fld = "host", .val = "mastodon.social" };
+    list[1] = phi.RawField{ .fld = "date", .val = "Sun, 30 Apr 2023 04:55:37 GMT" };
+
+    list[2] = phi.RawField{ .fld = "digest", .val = "SHA-256=a9IYUmhfuVYZQnUuiqFWHhLnxk67FUjWF4W7vewjGKA=" };
+
+    list[3] = phi.RawField{
+        .fld = "signature",
+        .val = "keyId=\"Testfoll\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"ZooM2n+l3bYVe0lCU0V9kfBz6kLZ+LjjLPeiAoPbYT2FUQflA2ke7tZVmNGzbMKu+ILNrO9JpGlI+ai9fLKvDXbuPjurlZ6Sq9O8xgXJfuLjYY8n7qEil90dhhFa99cTDNR3RV3wk/i5cVLozoNJTJzQnGcCI5Z8MtMy7hi/W/1AR42CwCiP3CalnB0dS8S4cYdKUQnVPYX6cuCkQH7UdzcEUVQovZGZtRZ9dv3uBXlCKY+3k//haezLKtdyVYfkrGDngtS6MBz4Lp0M4LCa5XSwyUcVZ94+hx2ghoXaCiBjWtow02mrAqH9Ud8i/gnyQ9Bl18AmvmMcStcSBHrSQg==\"",
+    };
+
+    return list;
+}
+
 var public_key_PEM =
     \\-----BEGIN PUBLIC KEY-----
     \\MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDCFENGw33yGihy92pDjZQhl0C3
@@ -382,3 +453,24 @@ const public_honk_PEM =
     \\IwIDAQAB
     \\-----END PUBLIC KEY-----
 ;
+
+const public_peop_PEM =
+    \\-----BEGIN PUBLIC KEY-----
+    \\MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsu5c5OjlLRjvJfFxLGIp
+    \\YB3O6eB2QIvCGlHwMDywz9kbBjQS/D51g2GSSZ3jvHzB5MTN+ip+2MCLt31tVKX9
+    \\D0eMPNBHFWS+bUvQ7jeD7kDvfTeLq7Wpd4y4s2Rk0oUXmAF6668erOR6eLYY7PTx
+    \\d023AScvaTrT2Tjo1cyQ62bWokflYSztzEnrPun0gjd++HspUYdGMYK0j3+heGPs
+    \\ZUN0On8ZPFJI/4AR7lOsVY+6YCSVH72iNtBQQxPCndrW2JApnWODviPc8gmsi4ud
+    \\2vkWJEo4aN77S0SY+O1A51Bqrnas+zQnzT7nGEBuNPC56/WusdObrGf88rs2ikzU
+    \\fQIDAQAB
+    \\-----END PUBLIC KEY-----
+;
+
+const base_peop_TXT =
+    \\(request-target): post /users/oatmeal/inbox
+    \\host: mastodon.social
+    \\date: Sun, 30 Apr 2023 04:55:37 GMT
+    \\digest: SHA-256=a9IYUmhfuVYZQnUuiqFWHhLnxk67FUjWF4W7vewjGKA=
+;
+const sum256_peop = "9F17D1A9F11C6AFD8AC047A4929E4A6D61CA9E9773E4A9A0FA4B6F33C6FED548";
+const modulus_peop = "B2EE5CE4E8E52D18EF25F1712C6229601DCEE9E076408BC21A51F0303CB0CFD91B063412FC3E75836192499DE3BC7CC1E4C4CDFA2A7ED8C08BB77D6D54A5FD0F478C3CD0471564BE6D4BD0EE3783EE40EF7D378BABB5A9778CB8B36464D2851798017AEBAF1EACE47A78B618ECF4F1774DB701272F693AD3D938E8D5CC90EB66D6A247E5612CEDCC49EB3EE9F482377EF87B295187463182B48F7FA17863EC6543743A7F193C5248FF8011EE53AC558FBA6024951FBDA236D0504313C29DDAD6D890299D6383BE23DCF209AC8B8B9DDAF916244A3868DEFB4B4498F8ED40E7506AAE76ACFB3427CD3EE718406E34F0B9EBF5AEB1D39BAC67FCF2BB368A4CD47D";

@@ -5,6 +5,16 @@ const cert = crypto.Certificate;
 const rsa = cert.rsa;
 const BigInt = std.math.big.int.Managed;
 
+pub fn hashed(
+    comptime Hash: type,
+    message: []const u8,
+    pub_key_algo: cert.Parsed.PubKeyAlgo,
+    msg_hashed: *[Hash.digest_length]u8,
+) !void {
+    if (pub_key_algo != .rsaEncryption) return error.CertificateSignatureAlgorithmMismatch;
+    Hash.hash(message, msg_hashed, .{});
+}
+
 // copied from *std.crypto.Certificate.rsa.verifyRsa* (and hope to remove
 // when the standard library offers it publicly scoped)
 pub fn signatureProof(

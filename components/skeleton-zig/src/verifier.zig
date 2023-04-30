@@ -145,6 +145,8 @@ const ByRSASignerImpl = struct {
         const clean = mem.trim(u8, sig, "\"");
         const max = try b64.calcSizeForSlice(clean);
 
+        log.warn("b64, {s}", .{clean});
+
         var decoded = buffer[0..max];
         try b64.decode(decoded, clean);
         return decoded;
