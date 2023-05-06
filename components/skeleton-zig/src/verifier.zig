@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const proof = @import("modules/rsa/proof.zig");
+////const proof = @import("modules/rsa/proof.zig");
 const lib = @import("lib.zig");
 const phi = @import("phi.zig");
 const mem = std.mem;
@@ -41,7 +41,7 @@ pub fn bySigner(ally: Allocator, base: []const u8) !bool {
     // _pre-verify_, harvest the public key
     impl.parsed = try produceVerifier(ally);
 
-    return impl.bySigner(base);
+    return impl.bySigner(base, ally);
 }
 
 // allows test to fire the fetch event
@@ -128,11 +128,31 @@ const ByRSASignerImpl = struct {
     }
 
     // verify signature
-    pub fn bySigner(self: Self, base: []const u8) !bool {
-        var buffer: [256]u8 = undefined;
+    pub fn bySigner(self: Self, base: []const u8, ally: Allocator) !bool {
+        // a RSA public key of modulus 2048 bits
+        const rsa_modulus_2048 = 256;
+        var buffer: [rsa_modulus_2048]u8 = undefined;
+        _ = try self.signature(&buffer);
 
         // invoke the "verifyRsa" from std
-        try proof.signatureProof(cert.Algorithm.sha256WithRSAEncryption.Hash(), base, try self.signature(&buffer), self.parsed.algo, self.parsed.bits());
+        //try proof.signatureProof(
+        //    cert.Algorithm.sha256WithRSAEncryption.Hash(),
+        //    base,
+        //    try self.signature(&buffer),
+        //    self.parsed.algo,
+        //    self.parsed.bits());
+
+        const pk_components = try cert.rsa.PublicKey.parseDer(self.parsed.bits());
+        const public_key = try cert.rsa.PublicKey.fromBytes(pk_components.exponent, pk_components.modulus, ally);
+
+        try cert.rsa.PSSSignature.verify(
+            rsa_modulus_2048,
+            buffer,
+            base,
+            public_key,
+            cert.Algorithm.sha256WithRSAEncryption.Hash(),
+            ally,
+        );
 
         return true;
     }

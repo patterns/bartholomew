@@ -3,7 +3,7 @@ const std = @import("std");
 const lib = @import("../lib.zig");
 const vfr = @import("../verifier.zig");
 const phi = @import("../phi.zig");
-const proof = @import("../modules/rsa/proof.zig");
+////const proof = @import("../modules/rsa/proof.zig");
 const expect = std.testing.expect;
 const expectErr = std.testing.expectError;
 const expectStr = std.testing.expectEqualStrings;
@@ -272,12 +272,15 @@ test "verify peop" {
     const base = try vfr.fmtBase(rcv, wrap);
     try expectStr(base, base_peop_TXT);
 
-    var hashed_msg: [32]u8 = undefined;
+    //var hashed_msg: [32]u8 = undefined;
     // sha256 sum check
-    try proof.hashed(cert.Algorithm.sha256WithRSAEncryption.Hash(), base, cert.Parsed.PubKeyAlgo.rsaEncryption, &hashed_msg);
-    const txt_hashed: []u8 = try fmt.bufPrint(&scratch_buf, "{any}", .{fmt.fmtSliceHexUpper(&hashed_msg)});
-
-    try expectStr(sum256_peop, txt_hashed);
+    //try proof.hashed(cert.Algorithm.sha256WithRSAEncryption.Hash(),
+    //    base,
+    //    cert.Parsed.PubKeyAlgo.rsaEncryption,
+    //    &hashed_msg);
+    //const txt_hashed: []u8 = try fmt.bufPrint(&scratch_buf, "{any}",
+    //    .{fmt.fmtSliceHexUpper(&hashed_msg)});
+    //try expectStr(sum256_peop, txt_hashed);
 
     ////const result = try vfr.bySigner(ally, base);
     ////try expect(result == true);
