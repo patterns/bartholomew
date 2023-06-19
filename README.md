@@ -10,6 +10,7 @@ This repository is a template for creating new [Bartholomew](https://github.com/
 - `spin.toml`: The configuration file for the Spin application.
 - `static/`: Static assets like images, CSS, and downloads go in here.
 - `templates/`: Your handlebars templates go here. 
+- `shortcodes/`: Your [shortcodes](https://bartholomew.fermyon.dev/shortcodes) go here. 
 
 ## Installation of Spin
 
@@ -33,3 +34,14 @@ Now you can point your web browser to `http://localhost:3000/` and see your new 
 
 This repository uses CC0. To the greatest extent possible, you are free to use this content however you want.
 You may relicense the code in this repository to your own satisfaction, including proprietary licenses.
+
+
+## Credits
+
+Story theme
+ by [HTML5 UP](https://html5up.net/uploads/demos/story/)
+
+Hugo Story theme
+ by [caressofsteel](https://themes.gohugo.io/themes/hugo-story/)
+
+
