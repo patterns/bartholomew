@@ -6,19 +6,19 @@ trigger = { type = "http", base = "/" }
 
 [[component]]
 id = "bartholomew"
-files = [ "content/**/*" , "templates/*", "scripts/*", "config/*", "shortcodes/*", "themes/story/templates/*"]
+files = [ "content/**/*" , "templates/*", "scripts/*", "config/*", "shortcodes/*", "themes/bromide/templates/*", "themes/bromide/scripts/*" ]
 [component.source]
-url = "https://github.com/fermyon/bartholomew/releases/download/v0.6.0/bartholomew.wasm"
-digest = "sha256:b64bc17da4484ff7fee619ba543f077be69b3a1f037506e0eeee1fb020d42786"
+url = "https://github.com/fermyon/bartholomew/releases/download/v0.8.0/bartholomew.wasm"
+digest = "sha256:ad5ac6215fb67ca122011d2d12840cb69ba80819499641349e92c05ceb65afc1"
 [component.trigger]
 route = "/..."
 
 [[component]]
 id = "fileserver"
-files = [{ source = "themes/story/static", destination = "/" }, { source = "static/", destination = "/" } ]
+files = [{ source = "themes/bromide/static", destination = "/" }, { source = "static/", destination = "/" } ]
 [component.source]
-url = "https://github.com/fermyon/spin-fileserver/releases/download/v0.0.1/spin_static_fs.wasm"
-digest = "sha256:650376c33a0756b1a52cad7ca670f1126391b79050df0321407da9c741d32375"
+url = "https://github.com/fermyon/spin-fileserver/releases/download/v0.0.2/spin_static_fs.wasm"
+digest = "sha256:65456bf4e84cf81b62075e761b2b0afaffaef2d0aeda521b245150f76b96421b"
 [component.trigger]
 route = "/static/..."
 

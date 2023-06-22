@@ -1,0 +1,16 @@
+{{! This adds the HTML head section and the beginning of the body. See content_top.hbs. }}
+{{> content_top }}
+
+<section class="section">
+    {{#with page.head}}
+    <h1 class="title">{{title}}</h1>
+    <h2 class="subtitle" >{{#if extra.date}}Published: {{extra.date}}{{/if}}</h2>
+    {{/with}}
+    <div class="content">
+        {{! Since this is HTML, we use the triple-curly }}
+        {{{page.body}}}
+    </div>
+</section>
+
+{{! This closes the body. See content_bottom.hbs. }}
+{{> content_bottom }}
