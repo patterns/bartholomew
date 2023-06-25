@@ -10,8 +10,8 @@ description = "attach user defined handler at comptime to static var"
 template = "blurb"
 
 [extra]
-date = "Jun. 20, 2023"
 
+date = "2023-06-20T23:59:19Z"
 
 ---
 

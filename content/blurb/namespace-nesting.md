@@ -10,8 +10,8 @@ description = "request as context in which its properties are overlay"
 template = "blurb"
 
 [extra]
-date = "Jun. 19, 2023"
 
+date = "2023-06-19T23:59:19Z"
 
 ---
 

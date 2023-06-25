@@ -1,21 +1,22 @@
-<!DOCTYPE html>
-<html><head><meta charset="utf-8" >
-<meta name="viewport" content="width=device-width, initial-scale=1" >
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-</head>
-<body>
-<section class="section">
-<div class="container">
+{{> content_top }}
+<section class="section"><div class="container">
+<div class="tile is-ancestor">
+<div class="tile is-vertical is-8 is-parent">
 
 {{#each (blurbs site.pages)}}
-<div class="card"><div class="card-content">
-    <p class="title">{{page.head.title}}</p>
+<div class="tile is-child box">
+    {{#with page.head}}
+    <p class="title">{{title}}</p>
+    <p class="subtitle">{{#if extra.date}}Published: {{extra.date}}{{/if}}</p>
+    <p >{{description}}</p>
+    {{/with}}
 
-    </div>
-    <footer class="card-footer">
-    <a class="card-footer-item" href="{{this.uri}}">View the Post</a></footer>
+    <p>
+    <a href="{{this.uri}}">View the Post</a></p>
 </div>
 {{/each}}
 
+</div>
+</div>
 </div></section>
-</body></html>
+{{> content_bottom }}
