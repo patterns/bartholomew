@@ -1,5 +1,5 @@
 title = "Notes, Lessons, Monologue"
-description = "Capture information gleaned from falling perpetually"
+description = "Capture information from perpetual failure"
 template = "blurbs"
 date = "2023-06-21T23:59:19Z"
 ---

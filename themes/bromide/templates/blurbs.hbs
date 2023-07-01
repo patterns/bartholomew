@@ -1,10 +1,28 @@
 {{> content_top }}
 <section class="section"><div class="container">
 <div class="tile is-ancestor">
-<div class="tile is-vertical is-8 is-parent">
+{{#with (blurbs site.pages)}}
 
-{{#each (blurbs site.pages)}}
-<div class="tile is-child box">
+<div class="tile is-4 is-vertical is-parent">
+{{#each cola}}
+<article class="tile is-child media">
+    {{#with page.head}}
+    <div class="media-content"><div class="content">
+    <p><strong>{{title}}</strong>
+    <small>
+        {{#if extra.date}}Published: {{date_format "%B %d, %Y" extra.date}}{{/if}}</small>
+    <br>{{description}}</p>
+    {{/with}}
+    <nav class="level is-mobile">
+    <a class="level-item" href="{{this.uri}}" aria-label="view">View the Post</a>
+    </nav>
+    </div></div>
+</article>
+{{/each}}
+</div>
+<div class="tile is-4 is-vertical is-parent">
+{{#each colb}}
+<article class="tile is-child box">
     {{#with page.head}}
     <p class="title">{{title}}</p>
     <p class="subtitle">{{#if extra.date}}Published: {{extra.date}}{{/if}}</p>
@@ -13,10 +31,31 @@
 
     <p>
     <a href="{{this.uri}}">View the Post</a></p>
-</div>
+</article>
 {{/each}}
-
 </div>
+<div class="tile is-4 is-vertical is-parent">
+{{#each colc}}
+<article class="tile is-child box"><div class="media">
+    <div class="media-left"><figure class="image is-64x64">
+        <img alt="Image"/></figure></div>
+    {{#with page.head}}
+    <div class="media-content"><div class="content">
+    <p class="title">{{title}}</p>
+    <p class="subtitle">{{#if extra.date}}Published: {{date_format "%B %d" extra.date}}{{/if}}</p>
+    <br/>{{description}}
+    {{/with}}
+        </div>
+    <nav class="level is-mobile">
+    <a class="level-item" href="{{this.uri}}" aria-label="view">View the Post</a>
+    </nav>
+    </div>
+    </div>
+</article>
+{{/each}}
+</div>
+
+{{/with}}
 </div>
 </div></section>
 {{> content_bottom }}
