@@ -22,36 +22,34 @@
 </div>
 <div class="tile is-4 is-vertical is-parent">
 {{#each colb}}
-<article class="tile is-child box">
+<div class="tile is-child card"><div class="card-content">
     {{#with page.head}}
     <p class="title">{{title}}</p>
-    <p class="subtitle">{{#if extra.date}}Published: {{extra.date}}{{/if}}</p>
+    <p class="subtitle">{{#if extra.date}}Published: {{date_format "%B %d" extra.date}}{{/if}}</p>
     <p >{{description}}</p>
     {{/with}}
-
-    <p>
-    <a href="{{this.uri}}">View the Post</a></p>
-</article>
+    </div>
+    <footer class="card-footer"><p class="card-footer-item"><span>
+    <a href="{{this.uri}}">View</a></span></p></footer>
+</div>
 {{/each}}
 </div>
 <div class="tile is-4 is-vertical is-parent">
 {{#each colc}}
-<article class="tile is-child box"><div class="media">
-    <div class="media-left"><figure class="image is-64x64">
-        <img alt="Image"/></figure></div>
+<div class="tile is-child card">
+    <div class="card-image"><figure class="image is-4by3 has-background-primary-light">
+        {{! Transparent instead of image to occupy space. }}
+        <p class="button is-ghost"></p></figure></div>
+    <div class="card-content"><div class="content">
     {{#with page.head}}
-    <div class="media-content"><div class="content">
     <p class="title">{{title}}</p>
     <p class="subtitle">{{#if extra.date}}Published: {{date_format "%B %d" extra.date}}{{/if}}</p>
     <br/>{{description}}
     {{/with}}
-        </div>
-    <nav class="level is-mobile">
-    <a class="level-item" href="{{this.uri}}" aria-label="view">View the Post</a>
-    </nav>
-    </div>
-    </div>
-</article>
+        </div></div>
+    <footer class="card-footer"><p class="card-footer-item"><span>
+    <a href="{{this.uri}}">View</a></span></p></footer>
+</div>
 {{/each}}
 </div>
 

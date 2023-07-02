@@ -1,9 +1,9 @@
 
 # REQUIRED
-title = "Day 3"
+title = "Day 3 Zenith"
 
 # OPTIONAL
-description = "Description of Day 3"
+description = "As the hours of day 3 edge toward nightfall"
 template = "blurb"
 
 [extra]

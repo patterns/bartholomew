@@ -1,9 +1,9 @@
 
 # REQUIRED
-title = "Day 2"
+title = "Day 2 Meridian"
 
 # OPTIONAL
-description = "Description of Day 2"
+description = "As the hours of day 2 reach mid-day noon"
 template = "blurb"
 
 [extra]
