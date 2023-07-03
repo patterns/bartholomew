@@ -1,5 +1,9 @@
 {{> content_top }}
 <section class="section"><div class="container">
+<h2 class="title is-2">{{page.head.title}}</h2>
+<h4 class="subtitle is-4">{{page.head.description}}</h4>
+</div></section>
+<section class="section"><div class="container">
 <div class="tile is-ancestor">
 {{#with (blurbs site.pages)}}
 
@@ -37,9 +41,9 @@
 <div class="tile is-4 is-vertical is-parent">
 {{#each colc}}
 <div class="tile is-child card">
-    <div class="card-image"><figure class="image is-4by3 has-background-primary-light">
+    <div class="card-image"><figure class="image is-4by3 stripes">
         {{! Transparent instead of image to occupy space. }}
-        <p class="button is-ghost"></p></figure></div>
+        <p ></p></figure></div>
     <div class="card-content"><div class="content">
     {{#with page.head}}
     <p class="title">{{title}}</p>

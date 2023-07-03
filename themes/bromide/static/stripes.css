@@ -1,0 +1,15 @@
+.stripes {
+  background: repeating-linear-gradient(
+    45deg,
+    #ff725c,
+    #ff725c 10px,
+/*
+    #ffa3d7 10px,
+    #ffa3d7 20px
+*/
+    #ffb700 10px,
+    #ffb700 20px
+  );
+}
+
+
