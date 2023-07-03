@@ -1,21 +1,63 @@
-<!DOCTYPE html>
-<html><head><meta charset="utf-8" >
-<meta name="viewport" content="width=device-width, initial-scale=1" >
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-</head>
-<body>
-<section class="section">
-<div class="container">
+{{> content_top }}
+<section class="section"><div class="container">
+<h2 class="title is-2">{{page.head.title}}</h2>
+<h4 class="subtitle is-4">{{page.head.description}}</h4>
+</div></section>
+<section class="section"><div class="container">
+<div class="tile is-ancestor">
+{{#with (blurbs site.pages)}}
 
-{{#each (blurbs site.pages)}}
-<div class="card"><div class="card-content">
-    <p class="title">{{page.head.title}}</p>
-
+<div class="tile is-4 is-vertical is-parent">
+{{#each cola}}
+<article class="tile is-child media">
+    {{#with page.head}}
+    <div class="media-content"><div class="content">
+    <p><strong>{{title}}</strong>
+    <small>
+        {{#if extra.date}}Published: {{date_format "%B %d, %Y" extra.date}}{{/if}}</small>
+    <br>{{description}}</p>
+    {{/with}}
+    <nav class="level is-mobile">
+    <a class="level-item" href="{{this.uri}}" aria-label="view">View the Post</a>
+    </nav>
+    </div></div>
+</article>
+{{/each}}
+</div>
+<div class="tile is-4 is-vertical is-parent">
+{{#each colb}}
+<div class="tile is-child card"><div class="card-content">
+    {{#with page.head}}
+    <p class="title">{{title}}</p>
+    <p class="subtitle">{{#if extra.date}}Published: {{date_format "%B %d" extra.date}}{{/if}}</p>
+    <p >{{description}}</p>
+    {{/with}}
     </div>
-    <footer class="card-footer">
-    <a class="card-footer-item" href="{{this.uri}}">View the Post</a></footer>
+    <footer class="card-footer"><p class="card-footer-item"><span>
+    <a href="{{this.uri}}">View</a></span></p></footer>
 </div>
 {{/each}}
+</div>
+<div class="tile is-4 is-vertical is-parent">
+{{#each colc}}
+<div class="tile is-child card">
+    <div class="card-image"><figure class="image is-4by3 stripes">
+        {{! Transparent instead of image to occupy space. }}
+        <p ></p></figure></div>
+    <div class="card-content"><div class="content">
+    {{#with page.head}}
+    <p class="title">{{title}}</p>
+    <p class="subtitle">{{#if extra.date}}Published: {{date_format "%B %d" extra.date}}{{/if}}</p>
+    <br/>{{description}}
+    {{/with}}
+        </div></div>
+    <footer class="card-footer"><p class="card-footer-item"><span>
+    <a href="{{this.uri}}">View</a></span></p></footer>
+</div>
+{{/each}}
+</div>
 
+{{/with}}
+</div>
 </div></section>
-</body></html>
+{{> content_bottom }}

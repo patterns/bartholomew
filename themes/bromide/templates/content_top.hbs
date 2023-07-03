@@ -1,14 +1,16 @@
 <!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" />
-    {{! Use the formatter.title and formatter.description in the head }}
-    <title>{{page.head.title}} | {{site.info.title}}</title>
-    {{#if page.head.description}}
-    {{! Only render the description if it exists }}
+<html><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/static/bulma.css" />
+{{#if page.head.extra.stripes}}
+    <link rel="stylesheet" href="/static/stripes.css" />
+{{/if}}
+{{#if page.head.extra.icons}}
+    <link rel="stylesheet" href="{{page.head.extra.icons}}" />
+{{/if}}
+{{#if page.head.description}}
     <meta name="description" content="{{page.head.description}}">
-    {{/if}}
+{{/if}}
+<title>{{page.head.title}} | {{site.info.title}}</title>
 </head>
-<body >
+<body>

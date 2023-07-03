@@ -1,0 +1,29 @@
+{{> content_top}}
+<section class="hero is-primary is-fullheight">
+<div class="hero-head"><nav class="navbar"><div class="container">
+    <div class="navbar-brand"><p class="navbar-item">
+        <span>PEoP</span></p></div>
+    <div class="navbar-menu"><div class="navbar-end">
+        <a class="navbar-item is-active">Home</a>
+        <a class="navbar-item" href="/dev">Devlog</a>
+        <span class="navbar-item">
+            <a class="button is-primary is-inverted" href="{{page.head.extra.git}}">
+            <span class="icon"><i class="fab fa-github"></i></span><span>Download</span>
+            </a></span>
+    </div></div>
+</div></nav></div>
+
+<div class="hero-body"><div class="container has-text-centered">
+<p class="title">{{page.head.title}}</p>
+{{#if page.head.description}}
+<p class="subtitle">{{page.head.description}}</p>
+{{/if}}
+</div></div>
+
+<div class="hero-foot"><nav class="tabs"><div class="container"><ul>
+{{#if site.info.extra.copyright}}
+<li>&copy; {{site.info.extra.copyright}}</li>
+{{/if}}
+</ul></div></nav></div>
+</section>
+</body></html>
