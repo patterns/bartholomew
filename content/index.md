@@ -10,7 +10,7 @@ title = "Pink Elephants on Parade"
 # OPTIONAL
 
 # The description of the page.
-description = "Experiment to mimic a subset of *Mastodon* features as static-only pages. "
+description = "L'essai sur site statique et Mastodon léger."
 
 # The name of the template to use. `templates/` is automatically prepended, and `.hbs` is appended.
 # So if you set this to `blog`, it becomes `templates/blog.hbs`.

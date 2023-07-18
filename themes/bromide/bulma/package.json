@@ -1,0 +1,29 @@
+{
+  "name": "bromide",
+  "version": "1.0.0",
+  "description": "bulma css for theme in bartholomew",
+  "main": "sass/mystyles.scss",
+  "scripts": {
+    "css-build": "node-sass --omit-source-map-url sass/mystyles.scss css/mystyles.css",
+    "css-watch": "npm run css-build -- --watch",
+    "start": "npm run css-watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/patterns/bartholomew.git"
+  },
+  "keywords": [
+    "bartholomew"
+  ],
+  "author": "patterns",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/patterns/bartholomew/issues"
+  },
+  "homepage": "https://github.com/patterns/bartholomew#readme",
+  "devDependencies": {
+    "bulma": "^0.9.4",
+    "node-sass": "^9.0.0"
+  }
+}
