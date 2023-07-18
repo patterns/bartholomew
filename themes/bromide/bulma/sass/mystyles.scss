@@ -1,0 +1,29 @@
+@charset "utf-8";
+
+// Import Google font
+@import url('https://fonts.googleapis.com/css?family=BioRhyme:400,700');
+
+// Set your brand colors
+$grapefruit: #FFA3D7;
+$persimmon: #FF725C;
+////$brown: #757763;
+////$beige-light: #D0D1CD;
+////$beige-lighter: #EFF0EB;
+
+// Update Bulma's global vars
+$family-sans-serif: "BioRhyme", sans-serif;
+////$grey-dark: $brown;
+////$grey-light: $beige-light;
+$primary: $persimmon;
+$link: $grapefruit;
+
+// Update some component vars
+////$body-background-color: $beige-lighter;
+$control-border-width: 1px;
+$input-border-color: transparent;
+$input-shadow: none;
+
+@import "../node_modules/bulma/bulma.sass";
+
+
+

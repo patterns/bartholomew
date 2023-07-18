@@ -1,6 +1,6 @@
 name = "bartholomew-template"
 spin_version = "1"
-version = "0.1.0"
+version = "0.1.1"
 description = "Your new Bartholomew website."
 trigger = { type = "http", base = "/" }
 
